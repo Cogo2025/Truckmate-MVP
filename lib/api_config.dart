@@ -12,6 +12,8 @@ class ApiConfig {
   // Profile endpoints
   static const String ownerProfile = '$baseUrl/api/profile/owner';
   static const String driverProfile = '$baseUrl/api/profile/driver';
+    static const String updateUser = '$baseUrl/api/profile/user'; // NEW: Add this line
+
   
   // Profile endpoints for specific owner
   static String getOwnerProfileById(String ownerId) => '$ownerProfile/$ownerId';
@@ -29,7 +31,7 @@ class ApiConfig {
   static String getLikesForItem(String itemId) => '$likes?likedItemId=$itemId';
   static String deleteLike(String likeId) => '$likes/$likeId';
   static const String checkLike = '$likes/check';
-  static const String userLikes = '$likes/user'; // Add this line
+  static const String userLikes = '$likes/user';
   
   // Notification endpoints
   static const String notifications = '$baseUrl/api/notifications';
@@ -41,7 +43,15 @@ class ApiConfig {
   // Utility methods for building query parameters
   static Uri buildUriWithQuery(String baseUrl, Map<String, dynamic> params) {
     final uri = Uri.parse(baseUrl);
-    return uri.replace(queryParameters: params);
+    final queryParams = <String, String>{};
+    
+    params.forEach((key, value) {
+      if (value != null) {
+        queryParams[key] = value.toString();
+      }
+    });
+    
+    return uri.replace(queryParameters: queryParams);
   }
   
   // Helper method for PATCH requests

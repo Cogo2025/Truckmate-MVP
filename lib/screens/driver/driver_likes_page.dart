@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/job_detail_page.dart';
+import 'package:truckmate_app/screens/driver/api_utils.dart';
 
 class DriverLikesPage extends StatefulWidget {
   const DriverLikesPage({Key? key}) : super(key: key);
@@ -25,51 +26,86 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
   }
 
   Future<void> _fetchLikedJobs() async {
-  try {
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-    });
-
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-
-    if (token == null) {
-      throw Exception('Not authenticated - please login again');
-    }
-
-    final response = await http.get(
-      Uri.parse('${ApiConfig.likes}/user'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-
-    final responseBody = jsonDecode(response.body);
-    debugPrint('Response: ${response.statusCode}, Body: $responseBody');
-
-    if (response.statusCode == 200) {
-      final List<dynamic> jobs = responseBody;
+    try {
       setState(() {
-        likedJobs = jobs;
-        isLoading = false;
+        isLoading = true;
+        errorMessage = null;
       });
-    } else {
-      // Handle different error cases
-      final errorMsg = responseBody['error'] ?? 
-                       responseBody['message'] ?? 
-                       'Failed to load liked jobs: ${response.statusCode}';
-      throw Exception(errorMsg);
+
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+
+      if (token == null) {
+        throw Exception('Not authenticated - please login again');
+      }
+
+      // Use the correct endpoint from ApiConfig
+      final response = await http.get(
+        Uri.parse('${ApiConfig.likes}/user'),
+        headers: ApiUtils.getAuthHeaders(token),
+      );
+
+      debugPrint('Response status: ${response.statusCode}');
+      debugPrint('Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final responseBody = response.body;
+        
+        // Handle empty response or null
+        if (responseBody.isEmpty || responseBody == 'null') {
+          setState(() {
+            likedJobs = [];
+            isLoading = false;
+          });
+          return;
+        }
+
+        try {
+          final dynamic decodedResponse = jsonDecode(responseBody);
+          
+          // Handle different response types
+          List<dynamic> jobs = [];
+          if (decodedResponse is List) {
+            jobs = decodedResponse;
+          } else if (decodedResponse is Map && decodedResponse.containsKey('data')) {
+            jobs = decodedResponse['data'] ?? [];
+          } else {
+            jobs = [];
+          }
+
+          setState(() {
+            likedJobs = jobs;
+            isLoading = false;
+          });
+          
+        } catch (jsonError) {
+          debugPrint('JSON decode error: $jsonError');
+          throw Exception('Invalid response format from server');
+        }
+        
+      } else {
+        // Handle error responses
+        String errorMsg = 'Failed to load liked jobs';
+        
+        try {
+          final errorResponse = jsonDecode(response.body);
+          errorMsg = errorResponse['error'] ?? 
+                    errorResponse['message'] ?? 
+                    'Server error (${response.statusCode})';
+        } catch (e) {
+          errorMsg = 'Server error (${response.statusCode})';
+        }
+        
+        throw Exception(errorMsg);
+      }
+    } catch (e) {
+      debugPrint('Error in _fetchLikedJobs: $e');
+      setState(() {
+        isLoading = false;
+        errorMessage = e.toString().replaceAll('Exception: ', '');
+      });
     }
-  } catch (e) {
-    setState(() {
-      isLoading = false;
-      errorMessage = e.toString().replaceAll('Exception: ', '');
-    });
-    debugPrint('Detailed error: $e');
   }
-}
 
   Widget _buildJobItem(BuildContext context, Map<String, dynamic> job) {
     return Card(
@@ -100,30 +136,56 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
               if (job['sourceLocation'] != null)
                 Row(
                   children: [
-                    const Icon(Icons.location_on, size: 16),
+                    const Icon(Icons.location_on, size: 16, color: Colors.grey),
                     const SizedBox(width: 4),
-                    Text(job['sourceLocation']),
+                    Expanded(
+                      child: Text(
+                        job['sourceLocation'],
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   ],
                 ),
               const SizedBox(height: 8),
               if (job['salaryRange'] != null)
                 Row(
                   children: [
-                    const Icon(Icons.attach_money, size: 16),
+                    const Icon(Icons.attach_money, size: 16, color: Colors.green),
                     const SizedBox(width: 4),
                     Text(
                       '₹${job['salaryRange']['min']} - ₹${job['salaryRange']['max']}',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
               const SizedBox(height: 8),
-              if (job['ownerId'] != null && job['ownerId']['companyName'] != null)
+              // Handle company name safely
+              if (job['ownerId'] != null)
                 Row(
                   children: [
-                    const Icon(Icons.business, size: 16),
+                    const Icon(Icons.business, size: 16, color: Colors.grey),
                     const SizedBox(width: 4),
-                    Text(job['ownerId']['companyName']),
+                    Expanded(
+                      child: Text(
+                        _getCompanyName(job['ownerId']),
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   ],
+                ),
+              // Add description if available
+              if (job['description'] != null && job['description'].toString().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    job['description'],
+                    style: const TextStyle(color: Colors.grey),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
             ],
           ),
@@ -132,12 +194,31 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
     );
   }
 
+  String _getCompanyName(dynamic ownerData) {
+    if (ownerData == null) return 'Unknown Company';
+    
+    // Handle different data structures
+    if (ownerData is Map<String, dynamic>) {
+      return ownerData['companyName'] ?? 'Unknown Company';
+    } else if (ownerData is String) {
+      return ownerData;
+    }
+    
+    return 'Unknown Company';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Liked Jobs'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchLikedJobs,
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _fetchLikedJobs,
@@ -148,34 +229,85 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
 
   Widget _buildBody() {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (errorMessage != null) {
-      return Center(
+      return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              errorMessage!,
-              style: const TextStyle(color: Colors.red),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _fetchLikedJobs,
-              child: const Text('Retry'),
-            ),
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading liked jobs...'),
           ],
         ),
       );
     }
 
+    if (errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.red[300],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Error Loading Liked Jobs',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                errorMessage!,
+                style: const TextStyle(color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _fetchLikedJobs,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Again'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (likedJobs.isEmpty) {
-      return const Center(
-        child: Text(
-          'No liked jobs yet',
-          style: TextStyle(fontSize: 18, color: Colors.grey),
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.favorite_border,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No liked jobs yet',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Start browsing jobs and like the ones you\'re interested in!',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       );
     }

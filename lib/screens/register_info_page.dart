@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 import 'package:truckmate_app/api_config.dart';
+import 'package:truckmate_app/screens/driver/driver_main_navigation.dart';
+import 'package:truckmate_app/screens/owner/owner_main_navigation.dart';
 import 'driver/driver_dashboard.dart';
 import 'owner/owner_dashboard.dart';
 
@@ -63,9 +65,9 @@ class _RegisterSelectionPageState extends State<RegisterSelectionPage> {
       if (response.statusCode == 200) {
         final role = data["user"]["role"];
         if (role == "driver") {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverDashboard()));
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverMainNavigation()));
         } else if (role == "owner") {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OwnerDashboard()));
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OwnerMainNavigation()));
         } else {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid role.")));
         }

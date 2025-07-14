@@ -52,13 +52,13 @@ class _LoginPageState extends State<LoginPage> {
       final prefs = await SharedPreferences.getInstance();
 
       if (idToken != null) {
-  await prefs.setString('authToken', idToken);
-} else {
-  throw Exception("Failed to get Firebase ID Token");
-}
+        await prefs.setString('authToken', idToken);
+      } else {
+        throw Exception("Failed to get Firebase ID Token");
+      }
 
       final response = await http.post(
-  Uri.parse(ApiConfig.googleLogin),
+        Uri.parse(ApiConfig.googleLogin),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "idToken": idToken,
@@ -72,39 +72,132 @@ class _LoginPageState extends State<LoginPage> {
         final user = data["user"];
         final role = user["role"];
 
-        if (_isRegisterMode || role == null || role.isEmpty) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const RegisterSelectionPage()),
-          );
-        } else if (role == "driver") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const DriverMainNavigation()),
-          );
-        } else if (role == "owner") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const OwnerMainNavigation()),
-          );
+        // Debug prints to help identify issues
+        print("Login response: $data");
+        print("User data: $user");
+        print("User role: $role");
+        print("Is register mode: $_isRegisterMode");
+
+        // Store user data in SharedPreferences for future use
+        await prefs.setString('userData', jsonEncode(user));
+
+        if (_isRegisterMode) {
+          // Force registration flow
+          _navigateToRegistration();
+        } else if (role == null || role.isEmpty || role == "null") {
+          // First time user or incomplete registration
+          _navigateToRegistration();
         } else {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text("Unknown role")));
+          // Existing user with valid role
+          _navigateToMainApp(role);
         }
       } else {
         final error = data["error"] ?? "Login failed";
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error)));
+        _showError(error);
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      print("Login error: $e");
+      _showError("Error: $e");
     }
 
     setState(() => _isLoading = false);
+  }
+
+  void _navigateToRegistration() {
+    setState(() => _isRegisterMode = false); // Reset register mode
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const RegisterSelectionPage(),
+      ),
+    );
+  }
+
+  void _navigateToMainApp(String role) {
+    if (role == "driver") {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const DriverMainNavigation()),
+      );
+    } else if (role == "owner") {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const OwnerMainNavigation()),
+      );
+    } else {
+      _showError("Unknown role: $role");
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // Method to handle returning from registration
+  Future<void> _handleRegistrationReturn() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final authToken = prefs.getString('authToken');
+      
+      if (authToken != null) {
+        // Re-fetch user data after registration
+        final response = await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/user/profile'), // Adjust endpoint as needed
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer $authToken",
+          },
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final user = data["user"];
+          final role = user["role"];
+
+          if (role != null && role.isNotEmpty && role != "null") {
+            await prefs.setString('userData', jsonEncode(user));
+            _navigateToMainApp(role);
+          } else {
+            _showError("Registration incomplete. Please try again.");
+          }
+        }
+      }
+    } catch (e) {
+      print("Error handling registration return: $e");
+      _showError("Error loading user data. Please try signing in again.");
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingLogin();
+  }
+
+  Future<void> _checkExistingLogin() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final authToken = prefs.getString('authToken');
+      final userData = prefs.getString('userData');
+
+      if (authToken != null && userData != null) {
+        final user = jsonDecode(userData);
+        final role = user["role"];
+
+        if (role != null && role.isNotEmpty && role != "null") {
+          // User is already logged in with valid role
+          _navigateToMainApp(role);
+        }
+      }
+    } catch (e) {
+      print("Error checking existing login: $e");
+    }
   }
 
   @override
@@ -161,36 +254,48 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 40),
                   _isLoading
-                      ? const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      )
+                      ? Column(
+                          children: [
+                            const CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              "Signing in...",
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        )
                       : SlideInAnimation(
-                        child: ElevatedButton.icon(
-                          onPressed: signInWithGoogle,
-                          icon: Image.asset(
-                            'assets/google_logo.png',
-                            height: 24,
-                          ),
-                          label: const Text("Continue with Google"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.black87,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 30,
-                              vertical: 16,
+                          child: ElevatedButton.icon(
+                            onPressed: signInWithGoogle,
+                            icon: Image.asset(
+                              'assets/google_logo.png',
+                              height: 24,
                             ),
-                            elevation: 8,
-                            shadowColor: Colors.black38,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                            side: const BorderSide(
-                              color: Colors.grey,
-                              width: 1,
+                            label: const Text("Continue with Google"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black87,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 30,
+                                vertical: 16,
+                              ),
+                              elevation: 8,
+                              shadowColor: Colors.black38,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              side: const BorderSide(
+                                color: Colors.grey,
+                                width: 1,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                   const SizedBox(height: 20),
                   FadeInAnimation(
                     delay: const Duration(milliseconds: 600),
