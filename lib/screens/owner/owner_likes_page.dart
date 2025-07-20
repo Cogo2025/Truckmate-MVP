@@ -36,16 +36,15 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
     }
 
     try {
-      // This endpoint might need to be created in your backend
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/owner/liked-drivers'), // Update with your actual endpoint
+        Uri.parse(ApiConfig.ownerLikedDrivers),
         headers: {"Authorization": "Bearer $token"},
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
-          likedDrivers = data['likedDrivers'] ?? [];
+          likedDrivers = List<dynamic>.from(data);
           isLoading = false;
         });
       } else {
@@ -70,13 +69,13 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
 
     try {
       final response = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/owner/like/$driverId'),
+        Uri.parse('${ApiConfig.unlikeDriver}$driverId'),
         headers: {"Authorization": "Bearer $token"},
       );
 
       if (response.statusCode == 200) {
         setState(() {
-          likedDrivers.removeWhere((driver) => driver['id'] == driverId);
+          likedDrivers.removeWhere((driver) => driver['googleId'] == driverId);
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -95,14 +94,15 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
   }
 
   Widget _buildLikedDriverCard(Map<String, dynamic> driver) {
+    final profile = driver['profile'] ?? {};
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundImage: driver['photoUrl'] != null
-              ? NetworkImage(driver['photoUrl'])
+          backgroundImage: profile['profilePhoto'] != null
+              ? NetworkImage(profile['profilePhoto'])
               : null,
-          child: driver['photoUrl'] == null
+          child: profile['profilePhoto'] == null
               ? const Icon(Icons.person)
               : null,
         ),
@@ -111,8 +111,8 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("Phone: ${driver['phone'] ?? 'N/A'}"),
-            Text("Experience: ${driver['experience'] ?? 'N/A'}"),
-            Text("Location: ${driver['location'] ?? 'N/A'}"),
+            Text("Experience: ${profile['experience'] ?? 'N/A'}"),
+            Text("Location: ${profile['location'] ?? 'N/A'}"),
             if (driver['likedDate'] != null)
               Text(
                 "Liked on: ${_formatDate(driver['likedDate'])}",
@@ -131,7 +131,7 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
               onSelected: (value) {
                 switch (value) {
                   case 'view':
-                    _viewDriverProfile(driver);
+                    _viewDriverProfile(driver, profile);
                     break;
                   case 'contact':
                     _contactDriver(driver);
@@ -194,7 +194,7 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _removeLike(driver['id']);
+              _removeLike(driver['googleId']);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Remove'),
@@ -204,7 +204,7 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
     );
   }
 
-  void _viewDriverProfile(Map<String, dynamic> driver) {
+  void _viewDriverProfile(Map<String, dynamic> driver, Map<String, dynamic> profile) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -217,14 +217,14 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
               Text("Name: ${driver['name'] ?? 'N/A'}"),
               Text("Phone: ${driver['phone'] ?? 'N/A'}"),
               Text("Email: ${driver['email'] ?? 'N/A'}"),
-              Text("Experience: ${driver['experience'] ?? 'N/A'}"),
-              Text("Location: ${driver['location'] ?? 'N/A'}"),
-              Text("License: ${driver['licenseNumber'] ?? 'N/A'}"),
-              Text("Truck Types: ${driver['truckTypes']?.join(', ') ?? 'N/A'}"),
+              Text("Experience: ${profile['experience'] ?? 'N/A'}"),
+              Text("Location: ${profile['location'] ?? 'N/A'}"),
+              Text("License: ${profile['licenseNumber'] ?? 'N/A'}"),
+              Text("Truck Types: ${(profile['knownTruckTypes'] as List<dynamic>?)?.join(', ') ?? 'N/A'}"),
               if (driver['rating'] != null)
                 Text("Rating: ${driver['rating']} ⭐"),
-              if (driver['bio'] != null)
-                Text("Bio: ${driver['bio']}"),
+              if (profile['bio'] != null)
+                Text("Bio: ${profile['bio']}"),
             ],
           ),
         ),
@@ -327,7 +327,7 @@ class _OwnerLikesPageState extends State<OwnerLikesPage> {
     }
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(

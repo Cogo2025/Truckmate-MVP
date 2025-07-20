@@ -2,27 +2,70 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/job_detail_page.dart';
 import 'package:truckmate_app/screens/driver/api_utils.dart';
 
 class DriverLikesPage extends StatefulWidget {
-  const DriverLikesPage({Key? key}) : super(key: key);
+  const DriverLikesPage({Key? key, this.onRefresh}) : super(key: key);
+  final VoidCallback? onRefresh;
 
   @override
-  _DriverLikesPageState createState() => _DriverLikesPageState();
+  DriverLikesPageState createState() => DriverLikesPageState();
 }
 
-class _DriverLikesPageState extends State<DriverLikesPage> {
+class DriverLikesPageState extends State<DriverLikesPage> with WidgetsBindingObserver {
   List<dynamic> likedJobs = [];
   bool isLoading = true;
+  bool showSlowConnectionMessage = false;
   String? errorMessage;
+  Timer? _slowConnectionTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchLikedJobs();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _slowConnectionTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _fetchLikedJobs();
+    }
+  }
+
+  Future<void> refreshLikedJobs() async {
+    await _fetchLikedJobs();
+  }
+
+  void _startSlowConnectionTimer() {
+    _slowConnectionTimer?.cancel();
+    _slowConnectionTimer = Timer(const Duration(seconds: 20), () {
+      if (isLoading && mounted) {
+        setState(() {
+          showSlowConnectionMessage = true;
+        });
+      }
+    });
+  }
+
+  void _cancelSlowConnectionTimer() {
+    _slowConnectionTimer?.cancel();
+    if (showSlowConnectionMessage && mounted) {
+      setState(() {
+        showSlowConnectionMessage = false;
+      });
+    }
   }
 
   Future<void> _fetchLikedJobs() async {
@@ -30,7 +73,11 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
       setState(() {
         isLoading = true;
         errorMessage = null;
+        showSlowConnectionMessage = false;
       });
+
+      // Start the slow connection timer
+      _startSlowConnectionTimer();
 
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
@@ -39,11 +86,13 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
         throw Exception('Not authenticated - please login again');
       }
 
-      // Use the correct endpoint from ApiConfig
       final response = await http.get(
         Uri.parse('${ApiConfig.likes}/user'),
         headers: ApiUtils.getAuthHeaders(token),
       );
+
+      // Cancel the timer since we got a response
+      _cancelSlowConnectionTimer();
 
       debugPrint('Response status: ${response.statusCode}');
       debugPrint('Response body: ${response.body}');
@@ -51,7 +100,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
       if (response.statusCode == 200) {
         final responseBody = response.body;
         
-        // Handle empty response or null
         if (responseBody.isEmpty || responseBody == 'null') {
           setState(() {
             likedJobs = [];
@@ -63,7 +111,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
         try {
           final dynamic decodedResponse = jsonDecode(responseBody);
           
-          // Handle different response types
           List<dynamic> jobs = [];
           if (decodedResponse is List) {
             jobs = decodedResponse;
@@ -84,7 +131,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
         }
         
       } else {
-        // Handle error responses
         String errorMsg = 'Failed to load liked jobs';
         
         try {
@@ -100,6 +146,7 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
       }
     } catch (e) {
       debugPrint('Error in _fetchLikedJobs: $e');
+      _cancelSlowConnectionTimer();
       setState(() {
         isLoading = false;
         errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -162,7 +209,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
                   ],
                 ),
               const SizedBox(height: 8),
-              // Handle company name safely
               if (job['ownerId'] != null)
                 Row(
                   children: [
@@ -176,7 +222,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
                     ),
                   ],
                 ),
-              // Add description if available
               if (job['description'] != null && job['description'].toString().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -197,7 +242,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
   String _getCompanyName(dynamic ownerData) {
     if (ownerData == null) return 'Unknown Company';
     
-    // Handle different data structures
     if (ownerData is Map<String, dynamic>) {
       return ownerData['companyName'] ?? 'Unknown Company';
     } else if (ownerData is String) {
@@ -213,12 +257,6 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
       appBar: AppBar(
         title: const Text('Liked Jobs'),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchLikedJobs,
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: _fetchLikedJobs,
@@ -229,13 +267,57 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
 
   Widget _buildBody() {
     if (isLoading) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Loading liked jobs...'),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            if (showSlowConnectionMessage) ...[
+              const Text(
+                'Loading liked jobs...',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.wifi_off,
+                      size: 32,
+                      color: Colors.orange[600],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Slow Internet Connection',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange[800],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Please check your internet connection and try again',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.orange[700],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              const Text('Loading liked jobs...'),
+            ],
           ],
         ),
       );
@@ -254,9 +336,9 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
                 color: Colors.red[300],
               ),
               const SizedBox(height: 16),
-              Text(
+              const Text(
                 'Error Loading Liked Jobs',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -300,7 +382,7 @@ class _DriverLikesPageState extends State<DriverLikesPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Start browsing jobs and like the ones you\'re interested in!',
+              'Start browsing jobs and like the ones youre interested in!',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[500],

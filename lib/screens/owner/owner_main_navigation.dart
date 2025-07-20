@@ -14,26 +14,134 @@ import '../../api_config.dart';
 
 class OwnerMainNavigation extends StatefulWidget {
   final int initialTabIndex;
-  const OwnerMainNavigation({super.key, this.initialTabIndex = 0});
+  final String? selectedTruckType;
+  
+  const OwnerMainNavigation({
+    super.key, 
+    this.initialTabIndex = 0,
+    this.selectedTruckType,
+  });
 
   @override
   State<OwnerMainNavigation> createState() => _OwnerMainNavigationState();
 }
 
-class _OwnerMainNavigationState extends State<OwnerMainNavigation> {
+class _OwnerMainNavigationState extends State<OwnerMainNavigation> with TickerProviderStateMixin {
   int _selectedIndex = 0;
-  final List<Widget> _pages = [
-    const OwnerDashboard(),
-    const OwnerProfilePage(),
-    const OwnerPostJobPage(),
-    const OwnerDriversPage(),
-    const OwnerLikesPage(),
+  late List<Widget> _pages;
+  
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late AnimationController _rippleController;
+  late Animation<double> _rippleAnimation;
+
+  // Enhanced navigation items with modern icons and colors for owner
+  final List<NavigationItem> _navigationItems = [
+    NavigationItem(
+      icon: Icons.dashboard_rounded,
+      activeIcon: Icons.dashboard,
+      label: "Dashboard",
+      color: const Color(0xFF6C63FF),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF6C63FF), Color(0xFF9C88FF)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    ),
+    NavigationItem(
+      icon: Icons.person_outline_rounded,
+      activeIcon: Icons.person_rounded,
+      label: "Profile",
+      color: const Color(0xFF00BCD4),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    ),
+    NavigationItem(
+      icon: Icons.add_circle_outline_rounded,
+      activeIcon: Icons.add_circle_rounded,
+      label: "Post",
+      color: const Color(0xFF9C27B0),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF9C27B0), Color(0xFFBA68C8)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    ),
+    NavigationItem(
+      icon: Icons.groups_outlined,
+      activeIcon: Icons.groups_rounded,
+      label: "Drivers",
+      color: const Color(0xFF4CAF50),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    ),
+    NavigationItem(
+      icon: Icons.favorite_border_rounded,
+      activeIcon: Icons.favorite_rounded,
+      label: "Likes",
+      color: const Color(0xFFFF5722),
+      gradient: const LinearGradient(
+        colors: [Color(0xFFFF5722), Color(0xFFFF7043)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialTabIndex;
+    
+    // Initialize pages with truck type filter if provided
+    _pages = [
+      const OwnerDashboard(),
+      const OwnerProfilePage(),
+      const OwnerPostJobPage(),
+      OwnerDriversPage(
+        initialTruckTypeFilter: widget.selectedTruckType,
+      ),
+      const OwnerLikesPage(),
+    ];
+    
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.1,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.elasticOut,
+    ));
+
+    _rippleController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    
+    _rippleAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _rippleController,
+      curve: Curves.easeOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _rippleController.dispose();
+    super.dispose();
   }
 
   Future<bool> _checkProfileStatus() async {
@@ -136,6 +244,14 @@ class _OwnerMainNavigationState extends State<OwnerMainNavigation> {
       }
     }
 
+    // Trigger animations
+    _animationController.forward().then((_) {
+      _animationController.reverse();
+    });
+    _rippleController.forward().then((_) {
+      _rippleController.reset();
+    });
+
     setState(() {
       _selectedIndex = index;
     });
@@ -159,62 +275,120 @@ class _OwnerMainNavigationState extends State<OwnerMainNavigation> {
           children: _pages,
         ),
         bottomNavigationBar: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(28),
+              topRight: Radius.circular(28),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black12,
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, -5),
+                spreadRadius: 0,
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
                 blurRadius: 10,
-                offset: Offset(0, -2),
+                offset: const Offset(0, -2),
+                spreadRadius: 0,
               ),
             ],
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
-              child: BottomNavigationBar(
-                backgroundColor: Colors.transparent,
-                type: BottomNavigationBarType.fixed,
-                currentIndex: _selectedIndex,
-                onTap: _onItemTapped,
-                selectedItemColor: Colors.deepOrange,
-                unselectedItemColor: Colors.grey,
-                selectedLabelStyle: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-                unselectedLabelStyle: const TextStyle(
-                  fontWeight: FontWeight.normal,
-                  fontSize: 11,
-                ),
-                showUnselectedLabels: true,
-                elevation: 0,
-                items: const [
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.home, size: 26),
-                    label: "Home",
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.person_outline, size: 26),
-                    label: "Profile",
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.post_add, size: 28),
-                    label: "Post",
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.people_outline, size: 26),
-                    label: "Drivers",
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.favorite_border, size: 26),
-                    label: "Likes",
-                  ),
-                ],
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: List.generate(_navigationItems.length, (index) {
+                  final item = _navigationItems[index];
+                  final isSelected = _selectedIndex == index;
+                  
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => _onItemTapped(index),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: isSelected ? item.gradient : null,
+                          color: isSelected ? null : Colors.transparent,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Ripple effect
+                                if (isSelected)
+                                  AnimatedBuilder(
+                                    animation: _rippleAnimation,
+                                    builder: (context, child) {
+                                      return Container(
+                                        width: 40 * _rippleAnimation.value,
+                                        height: 40 * _rippleAnimation.value,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.white.withOpacity(
+                                            0.3 * (1 - _rippleAnimation.value),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                // Icon with scale animation
+                                AnimatedBuilder(
+                                  animation: _scaleAnimation,
+                                  builder: (context, child) {
+                                    return Transform.scale(
+                                      scale: isSelected ? _scaleAnimation.value : 1.0,
+                                      child: Container(
+                                        width: 34,
+                                        height: 34,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: isSelected 
+                                              ? Colors.white.withOpacity(0.2)
+                                              : Colors.transparent,
+                                        ),
+                                        child: Icon(
+                                          isSelected ? item.activeIcon : item.icon,
+                                          size: 22,
+                                          color: isSelected 
+                                              ? Colors.white 
+                                              : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            AnimatedDefaultTextStyle(
+                              duration: const Duration(milliseconds: 300),
+                              style: TextStyle(
+                                fontSize: isSelected ? 11 : 10,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                color: isSelected ? Colors.white : Colors.grey.shade600,
+                              ),
+                              child: Text(
+                                item.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
               ),
             ),
           ),
@@ -222,4 +396,21 @@ class _OwnerMainNavigationState extends State<OwnerMainNavigation> {
       ),
     );
   }
+}
+
+// Navigation Item Model
+class NavigationItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final Color color;
+  final LinearGradient gradient;
+
+  NavigationItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.color,
+    required this.gradient,
+  });
 }

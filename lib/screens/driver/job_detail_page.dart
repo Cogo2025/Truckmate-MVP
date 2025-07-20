@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-
 import 'package:truckmate_app/api_config.dart';
 import 'specific_owner_posts.dart';
 
@@ -31,15 +30,61 @@ class _JobDetailPageState extends State<JobDetailPage> {
     _checkIfLiked();
   }
 
+  void _showFullScreenImage(int initialIndex) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(0),
+          child: Stack(
+            children: [
+              PageView.builder(
+                itemCount: widget.job['lorryPhotos'].length,
+                controller: PageController(initialPage: initialIndex),
+                itemBuilder: (context, index) {
+                  return InteractiveViewer(
+                    panEnabled: true,
+                    minScale: 0.5,
+                    maxScale: 3.0,
+                    child: Image.network(
+                      widget.job['lorryPhotos'][index],
+                      fit: BoxFit.contain,
+                    ),
+                  );
+                },
+              ),
+              Positioned(
+                top: 40,
+                right: 20,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _fetchJobDetails() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
       
+      if (token == null) {
+        throw Exception('Not authenticated');
+      }
+
       final response = await http.get(
         Uri.parse('${ApiConfig.jobs}/${widget.job['_id']}'),
         headers: {"Authorization": "Bearer $token"},
       );
+
+      debugPrint('Job details response: ${response.statusCode}');
+      debugPrint('Job details body: ${response.body}');
 
       if (response.statusCode == 200) {
         final jobData = jsonDecode(response.body);
@@ -54,6 +99,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
         });
       }
     } catch (e) {
+      debugPrint('Error fetching job details: $e');
       setState(() {
         isLoading = false;
         errorMessage = "Network error occurred";
@@ -66,6 +112,8 @@ class _JobDetailPageState extends State<JobDetailPage> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
       
+      if (token == null) return;
+
       final response = await http.get(
         Uri.parse('${ApiConfig.ownerProfile}/${widget.job['ownerId']}'),
         headers: {"Authorization": "Bearer $token"},
@@ -86,15 +134,23 @@ class _JobDetailPageState extends State<JobDetailPage> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
       
+      if (token == null) {
+        debugPrint('No auth token found');
+        return;
+      }
+
       final response = await http.get(
         Uri.parse('${ApiConfig.checkLike}?likedItemId=${widget.job['_id']}'),
         headers: {"Authorization": "Bearer $token"},
       );
 
+      debugPrint('Check like response: ${response.statusCode}');
+      debugPrint('Check like body: ${response.body}');
+
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
         setState(() {
-          isLiked = result['isLiked'];
+          isLiked = result['isLiked'] ?? false;
           likeId = result['likeId'];
         });
       }
@@ -104,64 +160,87 @@ class _JobDetailPageState extends State<JobDetailPage> {
   }
 
   Future<void> _toggleLike() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
 
-    if (token == null) {
-      throw Exception('Not authenticated');
-    }
-
-    setState(() {
-      isLiked = !isLiked;
-      likeCount = isLiked ? likeCount + 1 : likeCount - 1;
-    });
-
-    if (isLiked) {
-      // Like the job
-      final response = await http.post(
-        Uri.parse(ApiConfig.likes),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'likedItemId': widget.job['_id'],
-        }),
-      );
-
-      if (response.statusCode != 201) {
-        // Revert if failed
-        setState(() {
-          isLiked = !isLiked;
-          likeCount = isLiked ? likeCount + 1 : likeCount - 1;
-        });
-        throw Exception('Failed to like job');
+      if (token == null) {
+        _showErrorMessage('Please login again');
+        return;
       }
-    } else {
-      // Unlike the job
-      final response = await http.delete(
-        Uri.parse('${ApiConfig.likes}/${widget.job['_id']}'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
 
-      if (response.statusCode != 200) {
-        // Revert if failed
-        setState(() {
-          isLiked = !isLiked;
-          likeCount = isLiked ? likeCount + 1 : likeCount - 1;
-        });
-        throw Exception('Failed to unlike job');
+      // Optimistic update
+      final bool previousLikeState = isLiked;
+      final int previousLikeCount = likeCount;
+
+      setState(() {
+        isLiked = !isLiked;
+        likeCount = isLiked ? likeCount + 1 : likeCount - 1;
+      });
+
+      http.Response response;
+
+      if (isLiked) {
+        // Like the job
+        debugPrint('Liking job: ${widget.job['_id']}');
+        response = await http.post(
+          Uri.parse(ApiConfig.likes),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'likedItemId': widget.job['_id'],
+          }),
+        );
+      } else {
+        // Unlike the job
+        debugPrint('Unliking job: ${widget.job['_id']}');
+        response = await http.delete(
+          Uri.parse('${ApiConfig.likes}/${widget.job['_id']}'),
+          headers: {
+            'Authorization': 'Bearer $token',
+          },
+        );
       }
+
+      debugPrint('Toggle like response: ${response.statusCode}');
+      debugPrint('Toggle like body: ${response.body}');
+
+      if (response.statusCode != 201 && response.statusCode != 200) {
+        // Revert optimistic update
+        setState(() {
+          isLiked = previousLikeState;
+          likeCount = previousLikeCount;
+        });
+
+        // Parse error message
+        String errorMsg = 'Failed to ${isLiked ? 'unlike' : 'like'} job';
+        try {
+          final errorBody = jsonDecode(response.body);
+          errorMsg = errorBody['error'] ?? errorMsg;
+        } catch (e) {
+          debugPrint('Error parsing error response: $e');
+        }
+
+        _showErrorMessage(errorMsg);
+      }
+    } catch (e) {
+      debugPrint('Error toggling like: $e');
+      _showErrorMessage('Network error occurred');
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(e.toString())),
-    );
   }
-}
+
+  void _showErrorMessage(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   Widget _buildOwnerSection() {
     return GestureDetector(
@@ -330,12 +409,28 @@ class _JobDetailPageState extends State<JobDetailPage> {
             itemBuilder: (context, index) {
               return Padding(
                 padding: const EdgeInsets.only(right: 8.0),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    widget.job['lorryPhotos'][index],
-                    fit: BoxFit.cover,
-                    width: 300,
+                child: GestureDetector(
+                  onTap: () {
+                    _showFullScreenImage(index);
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      widget.job['lorryPhotos'][index],
+                      fit: BoxFit.cover,
+                      width: 300,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        width: 300,
+                        color: Colors.grey[200],
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.broken_image, size: 40),
+                            Text('Failed to load image'),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               );
@@ -350,25 +445,44 @@ class _JobDetailPageState extends State<JobDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-  title: const Text("Job Details"),
-  actions: [
-    IconButton(
-      icon: Icon(
-        isLiked ? Icons.favorite : Icons.favorite_border,
-        color: isLiked ? Colors.red : null,
+        title: const Text("Job Details"),
+        actions: [
+          IconButton(
+            icon: Icon(
+              isLiked ? Icons.favorite : Icons.favorite_border,
+              color: isLiked ? Colors.red : null,
+            ),
+            onPressed: _toggleLike,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Center(child: Text('$likeCount')),
+          ),
+        ],
       ),
-      onPressed: _toggleLike,
-    ),
-    Padding(
-      padding: const EdgeInsets.only(right: 16.0),
-      child: Center(child: Text('$likeCount')),
-    ),
-  ],
-),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : errorMessage != null
-              ? Center(child: Text(errorMessage!))
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(errorMessage!),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            isLoading = true;
+                            errorMessage = null;
+                          });
+                          _fetchJobDetails();
+                          _fetchOwnerProfile();
+                          _checkIfLiked();
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(

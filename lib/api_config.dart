@@ -12,8 +12,7 @@ class ApiConfig {
   // Profile endpoints
   static const String ownerProfile = '$baseUrl/api/profile/owner';
   static const String driverProfile = '$baseUrl/api/profile/driver';
-    static const String updateUser = '$baseUrl/api/profile/user'; // NEW: Add this line
-
+  static const String updateUser = '$baseUrl/api/profile/user';
   
   // Profile endpoints for specific owner
   static String getOwnerProfileById(String ownerId) => '$ownerProfile/$ownerId';
@@ -25,13 +24,20 @@ class ApiConfig {
   static const String ownerJobs = '$baseUrl/api/jobs/owner';
   static const String driverJobs = '$baseUrl/api/jobs/driver';
   static const String jobFilterOptions = '$driverJobs/filter-options';
-  
-  // Like endpoints
-  static const String likes = '$baseUrl/api/likes';
+  static const String updateAvailability = '$baseUrl/api/profile/availability';
+
+  // UPDATED: Like endpoints to match backend routes
+  static const String likes = '$baseUrl/api/likes/job';  // Changed from just /likes
   static String getLikesForItem(String itemId) => '$likes?likedItemId=$itemId';
   static String deleteLike(String likeId) => '$likes/$likeId';
-  static const String checkLike = '$likes/check';
-  static const String userLikes = '$likes/user';
+  static const String checkLike = '$baseUrl/api/likes/job/check';  // Updated path
+  static const String userLikes = '$baseUrl/api/likes/job/user';   // Updated path
+  
+  // Driver like endpoints
+  static const String likeDriver = '$baseUrl/api/likes/driver';
+  static const String unlikeDriver = '$baseUrl/api/likes/driver/';
+  static const String ownerLikedDrivers = '$baseUrl/api/likes/driver/user';
+  static const String checkDriverLike = '$baseUrl/api/likes/driver/check';
   
   // Notification endpoints
   static const String notifications = '$baseUrl/api/notifications';

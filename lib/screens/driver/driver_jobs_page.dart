@@ -17,115 +17,95 @@ class DriverJobsPage extends StatefulWidget {
   State<DriverJobsPage> createState() => _DriverJobsPageState();
 }
 
-class _DriverJobsPageState extends State<DriverJobsPage> {
+class _DriverJobsPageState extends State<DriverJobsPage> with TickerProviderStateMixin {
   List<dynamic> jobs = [];
-  List<dynamic> filteredJobs = [];
   bool isLoading = true;
   String? errorMessage;
   
   // Filter variables
-  String? selectedVehicleType;
-  String? selectedLocation;
-  String? selectedVariantType;
-  String? selectedWheelsOrFeet;
-  String? selectedExperience;
-  String? selectedDutyType;
-  String? selectedSalaryType;
-  double minSalary = 0;
-  double maxSalary = 100000;
-  bool showFilters = false;
+  final Map<String, dynamic> _activeFilters = {};
+  Map<String, dynamic> _filterOptions = {};
+  bool _isLoadingFilters = false;
   
-  // Filter options from backend
-  Map<String, dynamic> filterOptions = {};
-  bool isLoadingFilterOptions = false;
-  
-  // Debounce timer for salary range inputs
-  Timer? _debounceTimer;
-  
-  // Text controllers for salary inputs
+  // Controllers
+  final TextEditingController _searchController = TextEditingController();
   final TextEditingController _minSalaryController = TextEditingController();
   final TextEditingController _maxSalaryController = TextEditingController();
   
-  // Available filter options (fallback)
-  final List<String> vehicleTypes = [
-    "Body Vehicle",
-    "Trailer", 
-    "Tipper",
-    "Gas Tanker",
-    "Wind Mill",
-    "Concrete Mixer",
-    "Petrol Tank",
-    "Container",
-    "Bulker"
-  ];
+  // Animation controllers
+  late AnimationController _filterAnimationController;
+  late Animation<double> _filterAnimation;
   
-  final List<String> variantTypes = [
-    "Open Body",
-    "Closed Body", 
-    "Refrigerated",
-    "Flatbed",
-    "Tanker",
-    "Others"
-  ];
+  // Timers
+  Timer? _searchDebounce;
+  Timer? _salaryDebounce;
   
-  final List<String> wheelsOrFeetOptions = [
-    "6 Wheels",
-    "8 Wheels",
-    "10 Wheels",
-    "12 Wheels",
-    "14 Wheels",
-    "16 Wheels",
-    "18 Wheels",
-    "20 Feet",
-    "32 Feet",
-    "40 Feet"
-  ];
+  // UI State
+  bool _showFilters = false;
+  String _searchQuery = '';
   
-  final List<String> experienceOptions = [
-    "Fresher",
-    "1-2 Years",
-    "2-5 Years",
-    "5-10 Years",
-    "10+ Years"
-  ];
-  
-  final List<String> dutyTypes = [
-    "Full Time",
-    "Part Time",
-    "Contract",
-    "Temporary"
-  ];
-  
-  final List<String> salaryTypes = [
-    "Monthly",
-    "Per Trip",
-    "Per Day",
-    "Per Load"
-  ];
+  // Filter categories
+  static const Map<String, String> _filterKeys = {
+    'truckType': 'Vehicle Type',
+    'sourceLocation': 'Location',
+    'variantType': 'Body Variant',
+    'wheelsOrFeet': 'Wheels/Feet',
+    'experienceRequired': 'Experience',
+    'dutyType': 'Duty Type',
+    'salaryType': 'Salary Type',
+  };
 
   @override
   void initState() {
     super.initState();
-    selectedVehicleType = widget.filterByVehicle;
-    fetchFilterOptions();
-    fetchJobs();
+    _initializeControllers();
+    _initializeFilters();
+    _loadInitialData();
+  }
+
+  void _initializeControllers() {
+    _filterAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _filterAnimation = CurvedAnimation(
+      parent: _filterAnimationController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  void _initializeFilters() {
+    if (widget.filterByVehicle != null) {
+      _activeFilters['truckType'] = widget.filterByVehicle;
+    }
+    _minSalaryController.text = '0';
+    _maxSalaryController.text = '100000';
+  }
+
+  Future<void> _loadInitialData() async {
+    await Future.wait([
+      _fetchFilterOptions(),
+      _fetchJobs(),
+    ]);
   }
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
+    _searchDebounce?.cancel();
+    _salaryDebounce?.cancel();
+    _filterAnimationController.dispose();
+    _searchController.dispose();
     _minSalaryController.dispose();
     _maxSalaryController.dispose();
     super.dispose();
   }
 
-  Future<void> fetchFilterOptions() async {
+  Future<void> _fetchFilterOptions() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
-
     if (token == null) return;
 
-    setState(() => isLoadingFilterOptions = true);
+    setState(() => _isLoadingFilters = true);
 
     try {
       final response = await http.get(
@@ -136,33 +116,28 @@ class _DriverJobsPageState extends State<DriverJobsPage> {
       if (response.statusCode == 200) {
         final options = jsonDecode(response.body);
         setState(() {
-          filterOptions = options;
-          
-          // Update salary range if available
+          _filterOptions = options;
           if (options['salaryRange'] != null) {
-            minSalary = options['salaryRange']['min']?.toDouble() ?? 0;
-            maxSalary = options['salaryRange']['max']?.toDouble() ?? 100000;
-            _minSalaryController.text = minSalary.toInt().toString();
-            _maxSalaryController.text = maxSalary.toInt().toString();
+            _minSalaryController.text = options['salaryRange']['min'].toString();
+            _maxSalaryController.text = options['salaryRange']['max'].toString();
           }
-          
-          isLoadingFilterOptions = false;
+          _isLoadingFilters = false;
         });
       }
     } catch (e) {
-      setState(() => isLoadingFilterOptions = false);
-      debugPrint("Error fetching filter options: $e");
+      setState(() => _isLoadingFilters = false);
+      _showErrorSnackbar('Failed to load filter options');
     }
   }
 
-  Future<void> fetchJobs() async {
+  Future<void> _fetchJobs() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
 
     if (token == null) {
       setState(() {
         isLoading = false;
-        errorMessage = "Token missing. Please log in.";
+        errorMessage = "Authentication required";
       });
       return;
     }
@@ -173,398 +148,295 @@ class _DriverJobsPageState extends State<DriverJobsPage> {
     });
 
     try {
-      // Build query parameters for filtering
-      final queryParams = <String, String>{};
-      
-      if (selectedVehicleType != null && selectedVehicleType!.isNotEmpty) {
-        queryParams['truckType'] = selectedVehicleType!;
-      }
-      
-      if (selectedLocation != null && selectedLocation!.isNotEmpty) {
-        queryParams['location'] = selectedLocation!;
-      }
-      
-      if (selectedVariantType != null && selectedVariantType!.isNotEmpty) {
-        queryParams['variantType'] = selectedVariantType!;
-      }
-      
-      if (selectedWheelsOrFeet != null && selectedWheelsOrFeet!.isNotEmpty) {
-        queryParams['wheelsOrFeet'] = selectedWheelsOrFeet!;
-      }
-      
-      if (selectedExperience != null && selectedExperience!.isNotEmpty) {
-        queryParams['experienceRequired'] = selectedExperience!;
-      }
-      
-      if (selectedDutyType != null && selectedDutyType!.isNotEmpty) {
-        queryParams['dutyType'] = selectedDutyType!;
-      }
-      
-      if (selectedSalaryType != null && selectedSalaryType!.isNotEmpty) {
-        queryParams['salaryType'] = selectedSalaryType!;
-      }
-      
-      if (minSalary > 0) {
-        queryParams['minSalary'] = minSalary.toInt().toString();
-      }
-      
-      if (maxSalary < 100000) {
-        queryParams['maxSalary'] = maxSalary.toInt().toString();
-      }
-
+      final queryParams = _buildQueryParameters();
       final uri = Uri.parse(ApiConfig.driverJobs).replace(queryParameters: queryParams);
       
       final response = await http.get(
         uri,
         headers: ApiUtils.getAuthHeaders(token),
-      );
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final fetchedJobs = jsonDecode(response.body);
-        
         setState(() {
-          jobs = fetchedJobs;
-          filteredJobs = fetchedJobs;
+          jobs = _filterJobsBySearch(fetchedJobs);
           isLoading = false;
         });
       } else {
-        setState(() {
-          isLoading = false;
-          errorMessage = "Failed to fetch jobs. Status: ${response.statusCode}";
-        });
-        debugPrint("Error response body: ${response.body}");
+        _handleApiError(response);
       }
     } catch (e) {
       setState(() {
         isLoading = false;
-        errorMessage = "Error: ${e.toString()}";
+        errorMessage = _getErrorMessage(e);
       });
-      debugPrint("Exception details: $e");
     }
   }
 
-  // Auto-apply filters with debounce for salary inputs
-  void _applyFiltersWithDebounce() {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-      fetchJobs();
+  Map<String, String> _buildQueryParameters() {
+    final queryParams = <String, String>{};
+    
+    _activeFilters.forEach((key, value) {
+      if (value != null && value.toString().isNotEmpty) {
+        queryParams[key] = value.toString();
+      }
     });
+    
+    final minSalary = int.tryParse(_minSalaryController.text) ?? 0;
+    final maxSalary = int.tryParse(_maxSalaryController.text) ?? 100000;
+    
+    if (minSalary > 0) queryParams['minSalary'] = minSalary.toString();
+    if (maxSalary < 100000) queryParams['maxSalary'] = maxSalary.toString();
+    
+    return queryParams;
   }
 
-  // Immediate filter application for dropdowns
-  void _applyFiltersImmediate() {
-    fetchJobs();
+  List<dynamic> _filterJobsBySearch(List<dynamic> jobList) {
+    if (_searchQuery.isEmpty) return jobList;
+    
+    return jobList.where((job) {
+      final searchFields = [
+        job['truckType'] ?? '',
+        job['sourceLocation'] ?? '',
+        job['description'] ?? '',
+        job['experienceRequired'] ?? '',
+        job['dutyType'] ?? '',
+      ];
+      
+      return searchFields.any((field) => 
+        field.toLowerCase().contains(_searchQuery.toLowerCase())
+      );
+    }).toList();
   }
 
-  void _clearFilters() {
+  void _handleApiError(http.Response response) {
     setState(() {
-      selectedVehicleType = null;
-      selectedLocation = null;
-      selectedVariantType = null;
-      selectedWheelsOrFeet = null;
-      selectedExperience = null;
-      selectedDutyType = null;
-      selectedSalaryType = null;
-      minSalary = filterOptions['salaryRange']?['min']?.toDouble() ?? 0;
-      maxSalary = filterOptions['salaryRange']?['max']?.toDouble() ?? 100000;
-      _minSalaryController.text = minSalary.toInt().toString();
-      _maxSalaryController.text = maxSalary.toInt().toString();
+      isLoading = false;
+      errorMessage = "Failed to load jobs (${response.statusCode})";
     });
-    fetchJobs();
   }
 
-  List<String> _getFilterOptions(String key, List<String> fallback) {
-    if (filterOptions[key] != null) {
-      return List<String>.from(filterOptions[key]);
+  String _getErrorMessage(dynamic error) {
+    if (error is TimeoutException) {
+      return "Request timed out. Please check your connection.";
     }
-    return fallback;
+    return "Network error. Please try again.";
   }
 
-  Widget _buildDropdownFilter({
-    required String title,
-    required String? value,
-    required List<String> items,
-    required void Function(String?) onChanged,
-    String? hintText,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Colors.white,
+          onPressed: _fetchJobs,
         ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: value,
-          decoration: InputDecoration(
-            hintText: hintText ?? "Select $title",
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          ),
-          items: [
-            DropdownMenuItem(value: null, child: Text("All ${title}s")),
-            ...items.map((item) => DropdownMenuItem(
-              value: item,
-              child: Text(item),
-            )),
+      ),
+    );
+  }
+
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      setState(() {
+        _searchQuery = query;
+        jobs = _filterJobsBySearch(jobs);
+      });
+    });
+  }
+
+  void _onSalaryChanged() {
+    _salaryDebounce?.cancel();
+    _salaryDebounce = Timer(const Duration(milliseconds: 800), () {
+      _fetchJobs();
+    });
+  }
+
+  void _updateFilter(String key, dynamic value) {
+    setState(() {
+      if (value == null || value == '') {
+        _activeFilters.remove(key);
+      } else {
+        _activeFilters[key] = value;
+      }
+    });
+    _fetchJobs();
+  }
+
+  void _clearAllFilters() {
+    setState(() {
+      _activeFilters.clear();
+      _searchQuery = '';
+      _searchController.clear();
+      _minSalaryController.text = _filterOptions['salaryRange']?['min']?.toString() ?? '0';
+      _maxSalaryController.text = _filterOptions['salaryRange']?['max']?.toString() ?? '100000';
+    });
+    _fetchJobs();
+  }
+
+  void _toggleFilters() {
+    setState(() {
+      _showFilters = !_showFilters;
+    });
+    if (_showFilters) {
+      _filterAnimationController.forward();
+    } else {
+      _filterAnimationController.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: _buildAppBar(),
+      body: Column(
+        children: [
+          _buildSearchBar(),
+          _buildActiveFiltersChips(),
+          _buildFilterPanel(),
+          Expanded(child: _buildJobsList()),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Colors.white,
+      foregroundColor: Colors.black,
+      title: const Text(
+        'Available Jobs',
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+      automaticallyImplyLeading: false,
+      actions: [
+        Stack(
+          children: [
+            IconButton(
+              icon: Icon(
+                _showFilters ? Icons.filter_list_off : Icons.tune,
+                color: _activeFilters.isNotEmpty ? Colors.orange : Colors.grey[600],
+              ),
+              onPressed: _toggleFilters,
+            ),
+            if (_activeFilters.isNotEmpty)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.orange,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: Text(
+                    _activeFilters.length.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
           ],
-          onChanged: (newValue) {
-            onChanged(newValue);
-            // Auto-apply filters immediately when dropdown changes
-            _applyFiltersImmediate();
-          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _fetchJobs,
         ),
       ],
     );
   }
 
-  Widget _buildFilterSection() {
+  Widget _buildSearchBar() {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+      color: Colors.white,
+      child: TextField(
+        controller: _searchController,
+        onChanged: _onSearchChanged,
+        decoration: InputDecoration(
+          hintText: 'Search jobs...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    _onSearchChanged('');
+                  },
+                )
+              : null,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
           ),
-        ],
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Vehicle Type Filter
-            _buildDropdownFilter(
-              title: "Vehicle Type",
-              value: selectedVehicleType,
-              items: _getFilterOptions('truckTypes', vehicleTypes),
-              onChanged: (value) => setState(() => selectedVehicleType = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Location Filter
-            _buildDropdownFilter(
-              title: "Location",
-              value: selectedLocation,
-              items: _getFilterOptions('locations', []),
-              onChanged: (value) => setState(() => selectedLocation = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Variant Type Filter
-            _buildDropdownFilter(
-              title: "Body Variant",
-              value: selectedVariantType,
-              items: _getFilterOptions('variantTypes', variantTypes),
-              onChanged: (value) => setState(() => selectedVariantType = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Wheels/Feet Filter
-            _buildDropdownFilter(
-              title: "Wheels/Feet",
-              value: selectedWheelsOrFeet,
-              items: _getFilterOptions('wheelsOrFeetOptions', wheelsOrFeetOptions),
-              onChanged: (value) => setState(() => selectedWheelsOrFeet = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Experience Filter
-            _buildDropdownFilter(
-              title: "Experience Required",
-              value: selectedExperience,
-              items: _getFilterOptions('experienceOptions', experienceOptions),
-              onChanged: (value) => setState(() => selectedExperience = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Duty Type Filter
-            _buildDropdownFilter(
-              title: "Duty Type",
-              value: selectedDutyType,
-              items: _getFilterOptions('dutyTypes', dutyTypes),
-              onChanged: (value) => setState(() => selectedDutyType = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Salary Type Filter
-            _buildDropdownFilter(
-              title: "Salary Type",
-              value: selectedSalaryType,
-              items: _getFilterOptions('salaryTypes', salaryTypes),
-              onChanged: (value) => setState(() => selectedSalaryType = value),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Salary Range Filter
-            const Text(
-              "Salary Range",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _minSalaryController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: "Min Salary",
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      prefixText: "₹",
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        minSalary = double.tryParse(value) ?? 0;
-                      });
-                      // Auto-apply filters with debounce for salary inputs
-                      _applyFiltersWithDebounce();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextFormField(
-                    controller: _maxSalaryController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: "Max Salary",
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      prefixText: "₹",
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        maxSalary = double.tryParse(value) ?? 100000;
-                      });
-                      // Auto-apply filters with debounce for salary inputs
-                      _applyFiltersWithDebounce();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Clear Filters Button
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _clearFilters,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: const Text("Clear All Filters"),
-              ),
-            ),
-          ],
+          filled: true,
+          fillColor: Colors.grey[100],
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
       ),
     );
   }
 
-  Widget _buildActiveFiltersRow() {
-    List<Widget> chips = [];
-    
-    if (selectedVehicleType != null) {
-      chips.add(_buildFilterChip("Vehicle: $selectedVehicleType", () {
-        setState(() => selectedVehicleType = null);
-        fetchJobs();
-      }));
+  Widget _buildActiveFiltersChips() {
+    if (_activeFilters.isEmpty && _searchQuery.isEmpty) {
+      return const SizedBox();
     }
-    
-    if (selectedLocation != null) {
-      chips.add(_buildFilterChip("Location: $selectedLocation", () {
-        setState(() => selectedLocation = null);
-        fetchJobs();
-      }));
-    }
-    
-    if (selectedVariantType != null) {
-      chips.add(_buildFilterChip("Variant: $selectedVariantType", () {
-        setState(() => selectedVariantType = null);
-        fetchJobs();
-      }));
-    }
-    
-    if (selectedWheelsOrFeet != null) {
-      chips.add(_buildFilterChip("Wheels/Feet: $selectedWheelsOrFeet", () {
-        setState(() => selectedWheelsOrFeet = null);
-        fetchJobs();
-      }));
-    }
-    
-    if (selectedExperience != null) {
-      chips.add(_buildFilterChip("Experience: $selectedExperience", () {
-        setState(() => selectedExperience = null);
-        fetchJobs();
-      }));
-    }
-    
-    if (selectedDutyType != null) {
-      chips.add(_buildFilterChip("Duty: $selectedDutyType", () {
-        setState(() => selectedDutyType = null);
-        fetchJobs();
-      }));
-    }
-    
-    if (selectedSalaryType != null) {
-      chips.add(_buildFilterChip("Salary Type: $selectedSalaryType", () {
-        setState(() => selectedSalaryType = null);
-        fetchJobs();
-      }));
-    }
-    
-    if (chips.isEmpty) return const SizedBox();
-    
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               const Icon(Icons.filter_alt, size: 16, color: Colors.grey),
-              const SizedBox(width: 4),
+              const SizedBox(width: 8),
               const Text(
-                "Active Filters:",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                'Active Filters:',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
               ),
               const Spacer(),
-              if (chips.isNotEmpty)
-                TextButton(
-                  onPressed: _clearFilters,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    minimumSize: Size.zero,
-                  ),
-                  child: const Text("Clear All", style: TextStyle(fontSize: 12)),
+              TextButton(
+                onPressed: _clearAllFilters,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
                 ),
+                child: const Text('Clear All'),
+              ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: chips,
+              children: [
+                if (_searchQuery.isNotEmpty)
+                  _buildFilterChip('Search: $_searchQuery', () {
+                    _searchController.clear();
+                    _onSearchChanged('');
+                  }),
+                ..._activeFilters.entries.map((entry) {
+                  final displayName = _filterKeys[entry.key] ?? entry.key;
+                  return _buildFilterChip(
+                    '$displayName: ${entry.value}',
+                    () => _updateFilter(entry.key, null),
+                  );
+                }),
+              ],
             ),
           ),
         ],
@@ -576,253 +448,477 @@ class _DriverJobsPageState extends State<DriverJobsPage> {
     return Container(
       margin: const EdgeInsets.only(right: 8),
       child: Chip(
-        label: Text(label, style: const TextStyle(fontSize: 11)),
-        deleteIcon: const Icon(Icons.close, size: 14),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 12),
+        ),
+        deleteIcon: const Icon(Icons.close, size: 16),
         onDeleted: onDeleted,
-        backgroundColor: Colors.orange.shade100,
-        deleteIconColor: const Color(0xFFF57C00),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: Colors.orange.shade50,
+        deleteIconColor: Colors.orange,
+        side: BorderSide(color: Colors.orange.shade200),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Available Jobs"),
-        automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: Icon(showFilters ? Icons.filter_list_off : Icons.filter_list),
-            onPressed: () {
-              setState(() {
-                showFilters = !showFilters;
-              });
-            },
-          ),
+  Widget _buildFilterPanel() {
+    return SizeTransition(
+      sizeFactor: _filterAnimation,
+      child: Container(
+        color: Colors.white,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                border: Border(
+                  bottom: BorderSide(color: Colors.grey.shade200),
+                ),
+              ),
+              child: _isLoadingFilters
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildFilterContent(),
+            ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _clearAllFilters,
+                      child: const Text('Clear All'),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: _toggleFilters,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Text('Show Jobs (${jobs.length})'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterContent() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildFilterGrid(),
+          const SizedBox(height: 16),
+          _buildSalaryRangeFilter(),
         ],
       ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // Active Filters Row (side by side)
-              _buildActiveFiltersRow(),
-              
-              // Filter Section
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                height: showFilters ? 400 : 0,
-                child: showFilters ? _buildFilterSection() : null,
+    );
+  }
+
+  Widget _buildFilterGrid() {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 2.5,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      children: [
+        _buildDropdownFilter(
+          'Vehicle Type',
+          'truckType',
+          _getFilterOptionsList('truckTypes'),
+        ),
+        _buildDropdownFilter(
+          'Location',
+          'sourceLocation',
+          _getFilterOptionsList('locations'),
+        ),
+        _buildDropdownFilter(
+          'Body Variant',
+          'variantType',
+          _getFilterOptionsList('variantTypes'),
+        ),
+        _buildDropdownFilter(
+          'Wheels/Feet',
+          'wheelsOrFeet',
+          _getFilterOptionsList('wheelsOrFeetOptions'),
+        ),
+        _buildDropdownFilter(
+          'Experience',
+          'experienceRequired',
+          _getFilterOptionsList('experienceOptions'),
+        ),
+        _buildDropdownFilter(
+          'Duty Type',
+          'dutyType',
+          _getFilterOptionsList('dutyTypes'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownFilter(String title, String key, List<String> options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            value: _activeFilters[key],
+            decoration: InputDecoration(
+              hintText: 'Select',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
-              
-              // Jobs List
-              Expanded(
-                child: Stack(
-                  children: [
-                    // Main content
-                    isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : errorMessage != null
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(errorMessage!),
-                                    const SizedBox(height: 16),
-                                    ElevatedButton(
-                                      onPressed: fetchJobs,
-                                      child: const Text("Retry"),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : jobs.isEmpty
-                                ? const Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.work_off, size: 64, color: Colors.grey),
-                                        SizedBox(height: 16),
-                                        Text(
-                                          "No jobs match your filters",
-                                          style: TextStyle(fontSize: 16, color: Colors.grey),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                : RefreshIndicator(
-                                    onRefresh: fetchJobs,
-                                    child: ListView.builder(
-                                      itemCount: jobs.length,
-                                      itemBuilder: (context, index) {
-                                        final job = jobs[index];
-                                        return Card(
-                                          margin: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          child: ListTile(
-                                            leading: Container(
-                                              width: 50,
-                                              height: 50,
-                                              decoration: BoxDecoration(
-                                                color: Colors.orange.shade100,
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: const Icon(
-                                                Icons.local_shipping,
-                                                color: Colors.orange,
-                                              ),
-                                            ),
-                                            title: Text(
-                                              job['truckType'] ?? 'No Type',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            subtitle: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                if (job['sourceLocation'] != null)
-                                                  Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.location_on,
-                                                        size: 16,
-                                                        color: Colors.grey,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Text(job['sourceLocation']),
-                                                    ],
-                                                  ),
-                                                if (job['salaryRange'] != null)
-                                                  Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.currency_rupee,
-                                                        size: 16,
-                                                        color: Colors.grey,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Text(
-                                                        '₹${job['salaryRange']['min']} - ₹${job['salaryRange']['max']}',
-                                                      ),
-                                                    ],
-                                                  ),
-                                                if (job['dutyType'] != null)
-                                                  Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.work,
-                                                        size: 16,
-                                                        color: Colors.grey,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Text(job['dutyType']),
-                                                    ],
-                                                  ),
-                                                if (job['variant'] != null && job['variant']['type'] != null)
-                                                  Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.directions_car,
-                                                        size: 16,
-                                                        color: Colors.grey,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Text(job['variant']['type']),
-                                                    ],
-                                                  ),
-                                              ],
-                                            ),
-                                            trailing: const Icon(Icons.arrow_forward_ios),
-                                            onTap: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder: (context) => JobDetailPage(job: job),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                    
-                    // Overlay when filters are shown
-                    if (showFilters)
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          color: Colors.black.withOpacity(0.3),
-                          child: GestureDetector(
-                            onTap: () {
-                              // Prevent interaction with background
-                            },
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              isDense: true,
+            ),
+            items: [
+              const DropdownMenuItem(
+                value: null,
+                child: Text('All'),
               ),
+              ...options.map((option) => DropdownMenuItem(
+                value: option,
+                child: Text(option, overflow: TextOverflow.ellipsis),
+              )),
             ],
+            onChanged: (value) => _updateFilter(key, value),
           ),
-          
-          // View Button (Bottom)
-          if (showFilters)
-            Positioned(
-              bottom: 20,
-              left: 20,
-              right: 20,
-              child: Container(
-                decoration: BoxDecoration(
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      showFilters = false;
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSalaryRangeFilter() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Salary Range',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _minSalaryController,
+                keyboardType: TextInputType.number,
+                onChanged: (_) => _onSalaryChanged(),
+                decoration: InputDecoration(
+                  labelText: 'Min Salary',
+                  prefixText: '₹',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.visibility, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        "View Jobs (${jobs.length})",
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
               ),
             ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextField(
+                controller: _maxSalaryController,
+                keyboardType: TextInputType.number,
+                onChanged: (_) => _onSalaryChanged(),
+                decoration: InputDecoration(
+                  labelText: 'Max Salary',
+                  prefixText: '₹',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  List<String> _getFilterOptionsList(String key) {
+    if (_filterOptions[key] != null) {
+      return List<String>.from(_filterOptions[key]);
+    }
+    return [];
+  }
+
+  Widget _buildJobsList() {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (errorMessage != null) {
+      return _buildErrorState();
+    }
+
+    if (jobs.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return RefreshIndicator(
+      onRefresh: _fetchJobs,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: jobs.length,
+        itemBuilder: (context, index) => _buildJobCard(jobs[index]),
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+          const SizedBox(height: 16),
+          Text(
+            errorMessage!,
+            style: const TextStyle(fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: _fetchJobs,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.work_off, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          const Text(
+            'No jobs found',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _activeFilters.isNotEmpty || _searchQuery.isNotEmpty
+                ? 'Try adjusting your filters or search terms'
+                : 'Check back later for new opportunities',
+            style: TextStyle(color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          if (_activeFilters.isNotEmpty || _searchQuery.isNotEmpty)
+            ElevatedButton(
+              onPressed: _clearAllFilters,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Clear All Filters'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobCard(Map<String, dynamic> job) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: () => _navigateToJobDetail(job),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildJobThumbnail(job),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          job['truckType'] ?? 'No Type',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        if (job['sourceLocation'] != null)
+                          _buildInfoRow(
+                            Icons.location_on,
+                            job['sourceLocation'],
+                            Colors.red,
+                          ),
+                        const SizedBox(height: 4),
+                        if (job['experienceRequired'] != null)
+                          _buildInfoRow(
+                            Icons.work,
+                            job['experienceRequired'],
+                            Colors.blue,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildJobFooter(job),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJobThumbnail(Map<String, dynamic> job) {
+    if (job['lorryPhotos'] != null && job['lorryPhotos'].isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          job['lorryPhotos'][0],
+          width: 60,
+          height: 60,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _buildDefaultThumbnail(),
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return _buildLoadingThumbnail();
+          },
+        ),
+      );
+    }
+    return _buildDefaultThumbnail();
+  }
+
+  Widget _buildDefaultThumbnail() {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        color: Colors.orange.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(
+        Icons.local_shipping,
+        color: Colors.orange,
+        size: 30,
+      ),
+    );
+  }
+
+  Widget _buildLoadingThumbnail() {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String text, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(color: Colors.grey[600]),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildJobFooter(Map<String, dynamic> job) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        if (job['salaryRange'] != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.currency_rupee, size: 16, color: Colors.green[700]),
+                const SizedBox(width: 4),
+                Text(
+                  '${job['salaryRange']['min']} - ${job['salaryRange']['max']}',
+                  style: TextStyle(
+                    color: Colors.green[700],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const Spacer(),
+        Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: Colors.grey[400],
+        ),
+      ],
+    );
+  }
+
+  void _navigateToJobDetail(Map<String, dynamic> job) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JobDetailPage(job: job),
       ),
     );
   }

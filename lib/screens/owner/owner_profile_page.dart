@@ -4,6 +4,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:truckmate_app/screens/login_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -425,195 +426,194 @@ class _OwnerProfilePageState extends State<OwnerProfilePage> {
   }
 
   Future<void> _logout() async {
-    // Show confirmation dialog with enhanced UI
-    final bool? shouldLogout = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false, // Prevent dismissing by tapping outside
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: Row(
-          children: [
-            Icon(Icons.logout, color: Colors.red.shade600),
-            const SizedBox(width: 8),
-            const Text(
-              "Logout",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Are you sure you want to logout?",
-              style: TextStyle(fontSize: 16),
-            ),
-            SizedBox(height: 8),
-            Text(
-              "You will need to sign in again to access your account.",
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              "Cancel",
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text(
-              "Logout",
-              style: TextStyle(fontWeight: FontWeight.w600),
+  // Show confirmation dialog with enhanced UI
+  final bool? shouldLogout = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false, // Prevent dismissing by tapping outside
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      title: Row(
+        children: [
+          Icon(Icons.logout, color: Colors.red.shade600),
+          const SizedBox(width: 8),
+          const Text(
+            "Logout",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
             ),
           ),
         ],
       ),
-    );
-
-    // If user confirmed logout
-    if (shouldLogout == true) {
-      try {
-        // Show loading indicator
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text(
-                      "Logging out...",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Are you sure you want to logout?",
+            style: TextStyle(fontSize: 16),
+          ),
+          SizedBox(height: 8),
+          Text(
+            "You will need to sign in again to access your account.",
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
             ),
           ),
-        );
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(
+            "Cancel",
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          child: const Text(
+            "Logout",
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    ),
+  );
 
-        // Clear all stored data
-        final prefs = await SharedPreferences.getInstance();
-        
-        // Clear specific keys to ensure complete logout
-        await prefs.remove('authToken');
-        await prefs.remove('userRole');
-        await prefs.remove('userId');
-        await prefs.remove('userName');
-        await prefs.remove('userEmail');
-        await prefs.remove('userPhone');
-        await prefs.remove('ownerProfileCompleted');
-        await prefs.remove('driverProfileCompleted');
-        await prefs.remove('ownerCompanyName');
-        await prefs.remove('driverLicenseType');
-
-        // Small delay to show the loading state
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        // Close loading dialog FIRST
-        if (mounted) {
-          Navigator.of(context).pop(); // Close loading dialog
-        }
-
-        // Add a small delay to ensure dialog is fully closed
-        await Future.delayed(const Duration(milliseconds: 100));
-
-        // Navigate to login screen and clear all previous routes
-        if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil(
-            '/login',
-            (route) => false, // Remove all previous routes
-          );
-        }
-
-        // Show success message with a delay to ensure navigation completed
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(
-                      "Logged out successfully",
-                      style: TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        });
-
-      } catch (e) {
-        // Close loading dialog if still open
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-        
-        // Show error message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
+  // If user confirmed logout
+  if (shouldLogout == true) {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.error, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "Logout failed: ${e.toString()}",
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    "Logging out...",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-              behavior: SnackBarBehavior.floating,
-              action: SnackBarAction(
-                label: "Retry",
-                textColor: Colors.white,
-                onPressed: _logout,
+            ),
+          ),
+        ),
+      );
+
+       final prefs = await SharedPreferences.getInstance();
+      
+      // Clear specific keys to ensure complete logout
+      await prefs.remove('authToken');
+      await prefs.remove('userRole');
+      await prefs.remove('userId');
+      await prefs.remove('userName');
+      await prefs.remove('userEmail');
+      await prefs.remove('userPhone');
+      await prefs.remove('ownerProfileCompleted');
+      await prefs.remove('driverProfileCompleted');
+      await prefs.remove('ownerCompanyName');
+      await prefs.remove('driverLicenseType');
+      await prefs.remove('userData'); // Also clear userData that LoginPage uses
+
+      // Small delay to show the loading state
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Close loading dialog FIRST
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+      }
+
+      // Add a small delay to ensure dialog is fully closed
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Navigate to login screen and clear all previous routes - FIXED
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+          (route) => false, // Remove all previous routes
+        );
+      }
+
+      // Show success message with a delay to ensure navigation completed
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    "Logged out successfully",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ],
               ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
             ),
           );
         }
+      });
+
+    } catch (e) {
+      // Close loading dialog if still open
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+        // Show error message
+        if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Logout failed: ${e.toString()}",
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: "Retry",
+              textColor: Colors.white,
+              onPressed: _logout,
+            ),
+          ),
+        );
       }
     }
   }
+}
 
   void _navigateToMyJobs() {
     Navigator.push(
@@ -959,10 +959,7 @@ class _OwnerProfilePageState extends State<OwnerProfilePage> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 20),
-
-                        // Action Buttons
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(

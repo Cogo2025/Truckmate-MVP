@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'owner_main_navigation.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({super.key});
@@ -28,6 +29,19 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     {"image": "assets/images/container.png", "label": "Container"},
     {"image": "assets/images/bulker.png", "label": "Bulker"},
   ];
+
+  void _onVehicleTypeSelected(String vehicleType) {
+    // Navigate to the main navigation with drivers page and pass the selected vehicle type
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OwnerMainNavigation(
+          initialTabIndex: 3, // Drivers page index
+          selectedTruckType: vehicleType,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,31 +114,41 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                   children: vehicleTypes.map((vehicle) {
                     return GestureDetector(
                       onTap: () {
-                        // TODO: Implement filtering
                         print("🚚 Selected: ${vehicle["label"]}");
+                        _onVehicleTypeSelected(vehicle["label"]);
                       },
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.orange.shade50,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.orange.shade50,
+                              ),
+                              padding: const EdgeInsets.all(10),
+                              child: Image.asset(
+                                vehicle["image"],
+                                fit: BoxFit.contain,
+                              ),
                             ),
-                            padding: const EdgeInsets.all(10),
-                            child: Image.asset(
-                              vehicle["image"],
-                              fit: BoxFit.contain,
+                            const SizedBox(height: 8),
+                            Text(
+                              vehicle["label"],
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            vehicle["label"],
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     );
                   }).toList(),
