@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+import '../../services/auth_service.dart'; // Import the updated AuthService
 import '../../api_config.dart';
 
 class OwnerDriversPage extends StatefulWidget {
@@ -35,76 +36,119 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
     fetchAvailableDrivers();
   }
 
-  Future<void> fetchAvailableDrivers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
+  // Updated: Fetch with fresh token and retry on expiration
+Future<void> fetchAvailableDrivers() async {
+  setState(() {
+    isLoading = true;
+    errorMessage = null;
+  });
 
-    if (token == null) {
-      setState(() {
-        isLoading = false;
-        errorMessage = "Authentication token not found";
-      });
-      return;
+  final freshToken = await AuthService.getFreshAuthToken();
+  if (freshToken == null) {
+    setState(() {
+      isLoading = false;
+      errorMessage = "Authentication failed. Please log in again.";
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Session expired. Please re-login.")),
+    );
+    // Optionally: Navigate to login page
+    // Navigator.pushReplacementNamed(context, '/login');
+    return;
+  }
+
+  try {
+    // Build query parameters
+    final params = <String, String>{};
+    if (selectedLocation != null && selectedLocation!.isNotEmpty) {
+      params['location'] = selectedLocation!;
+    }
+    if (selectedTruckType != null && selectedTruckType!.isNotEmpty) {
+      params['truckType'] = selectedTruckType!;
     }
 
-    try {
-      // Build query parameters
-      final params = <String, String>{};
-      if (selectedLocation != null && selectedLocation!.isNotEmpty) {
-        params['location'] = selectedLocation!;
-      }
-      if (selectedTruckType != null && selectedTruckType!.isNotEmpty) {
-        params['truckType'] = selectedTruckType!;
-      }
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/profile/driver/available')
+        .replace(queryParameters: params);
+    final response = await http.get(
+      uri,
+      headers: {"Authorization": "Bearer $freshToken"},
+    );
 
-      final uri = Uri.parse('${ApiConfig.baseUrl}/api/profile/driver/available')
-          .replace(queryParameters: params);
-
-      final response = await http.get(
-        uri,
-        headers: {"Authorization": "Bearer $token"},
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          drivers = data['drivers'] ?? [];
-          isLoading = false;
-          
-          // Extract unique locations and truck types for filters
-          locations = drivers
-              .map<String>((d) => d['location']?.toString() ?? 'Unknown')
-              .toSet()
-              .toList();
-          locations.removeWhere((loc) => loc == 'Unknown');
-              
-          truckTypes = drivers
-              .expand<String>((d) => 
-                  (d['truckTypes'] as List<dynamic>?)?.map((t) => t.toString()) ?? [])
-              .toSet()
-              .toList();
-        });
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      setState(() {
+        drivers = data['drivers'] ?? [];
+        isLoading = false;
+        // Extract unique locations and truck types for filters (with explicit types)
+        locations = drivers
+            .map<String>((d) => d['location']?.toString() ?? 'Unknown')
+            .toSet()
+            .toList();
+        locations.removeWhere((loc) => loc == 'Unknown');
+        truckTypes = drivers
+            .expand<String>((d) =>
+                (d['truckTypes'] as List?)?.map<String>((t) => t?.toString() ?? '') ?? <String>[])
+            .toSet()
+            .toList();
+      });
+    } else if (response.body.contains('auth/id-token-expired')) {
+      // Retry once with forced refresh
+      final retryToken = await AuthService.getFreshAuthToken();
+      if (retryToken != null) {
+        final retryResponse = await http.get(
+          uri,
+          headers: {"Authorization": "Bearer $retryToken"},
+        );
+        if (retryResponse.statusCode == 200) {
+          // Process successful retry (fully repeated extraction logic with explicit types)
+          final data = jsonDecode(retryResponse.body);
+          setState(() {
+            drivers = data['drivers'] ?? [];
+            isLoading = false;
+            // Extract unique locations and truck types for filters (with explicit types)
+            locations = drivers
+                .map<String>((d) => d['location']?.toString() ?? 'Unknown')
+                .toSet()
+                .toList();
+            locations.removeWhere((loc) => loc == 'Unknown');
+            truckTypes = drivers
+                .expand<String>((d) =>
+                    (d['truckTypes'] as List?)?.map<String>((t) => t?.toString() ?? '') ?? <String>[])
+                .toSet()
+                .toList();
+          });
+        } else {
+          setState(() {
+            isLoading = false;
+            errorMessage = "Retry failed: ${retryResponse.reasonPhrase}";
+          });
+        }
       } else {
         setState(() {
           isLoading = false;
-          errorMessage = "Failed to fetch available drivers";
+          errorMessage = "Token refresh failed during retry";
         });
       }
-    } catch (e) {
+    } else {
       setState(() {
         isLoading = false;
-        errorMessage = "Error: $e";
+        errorMessage = "Failed to fetch available drivers: ${response.reasonPhrase}";
       });
     }
+  } catch (e) {
+    setState(() {
+      isLoading = false;
+      errorMessage = "Error: $e";
+    });
   }
+}
 
+  // Updated: Toggle like with fresh token
   Future<void> _toggleDriverLike(Map<String, dynamic> driver) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-
-    if (token == null) {
+    final freshToken = await AuthService.getFreshAuthToken();
+    if (freshToken == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Authentication token not found")),
+        const SnackBar(content: Text("Session expired. Please re-login.")),
       );
       return;
     }
@@ -112,24 +156,27 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
     try {
       final response = await http.get(
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=${driver['id']}'),
-        headers: {"Authorization": "Bearer $token"},
+        headers: {"Authorization": "Bearer $freshToken"},
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data['isLiked']) {
-          await _unlikeDriver(driver['id'], token);
+        if (data['isLiked'] == true) {
+          await _unlikeDriver(driver['id'].toString(), freshToken);
         } else {
-          await _likeDriver(driver['id'], token);
+          await _likeDriver(driver['id'].toString(), freshToken);
         }
+      } else {
+        throw Exception("Check like failed: ${response.reasonPhrase}");
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        SnackBar(content: Text("Error toggling like: $e")),
       );
     }
   }
 
+  // Updated: Like driver with fresh token
   Future<void> _likeDriver(String driverId, String token) async {
     try {
       final response = await http.post(
@@ -140,58 +187,59 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
         },
         body: jsonEncode({'driverId': driverId}),
       );
-
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver added to favorites")),
         );
+        // Optionally refresh the list after like
+        await fetchAvailableDrivers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to like driver")),
+          SnackBar(content: Text("Failed to like driver: ${response.reasonPhrase}")),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        SnackBar(content: Text("Error liking driver: $e")),
       );
     }
   }
 
+  // Updated: Unlike driver with fresh token
   Future<void> _unlikeDriver(String driverId, String token) async {
     try {
       final response = await http.delete(
         Uri.parse('${ApiConfig.unlikeDriver}$driverId'),
         headers: {"Authorization": "Bearer $token"},
       );
-
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver removed from favorites")),
         );
+        // Optionally refresh the list after unlike
+        await fetchAvailableDrivers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to unlike driver")),
+          SnackBar(content: Text("Failed to unlike driver: ${response.reasonPhrase}")),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        SnackBar(content: Text("Error unliking driver: $e")),
       );
     }
   }
 
+  // Updated: Check if liked with fresh token
   Future<bool> _checkIfDriverLiked(String driverId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-
-    if (token == null) return false;
+    final freshToken = await AuthService.getFreshAuthToken();
+    if (freshToken == null) return false;
 
     try {
       final response = await http.get(
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=$driverId'),
-        headers: {"Authorization": "Bearer $token"},
+        headers: {"Authorization": "Bearer $freshToken"},
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['isLiked'] ?? false;
@@ -201,7 +249,6 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
       return false;
     }
   }
-
   Widget _buildFilterDialog() {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

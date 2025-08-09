@@ -72,6 +72,73 @@ class _DriverProfileSetupPageState extends State<DriverProfileSetupPage> {
       setState(() => profilePhoto = picked);
     }
   }
+// screens/driver/driver_profile_setup.dart - Add verification request
+Future<void> _submitForVerification() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/api/verification/request'),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (response.statusCode == 201) {
+      _showSuccessDialog();
+    } else {
+      final error = jsonDecode(response.body)['error'];
+      _showErrorDialog(error);
+    }
+  } catch (e) {
+    _showErrorDialog('Failed to submit verification request');
+  }
+}
+
+void _showSuccessDialog() {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      title: const Text('Profile Submitted!'),
+      content: const Text(
+        'Your profile has been submitted for admin verification. '
+        'You will be able to access jobs once approved.',
+      ),
+      actions: [
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const DriverMainNavigation(),
+              ),
+            );
+          },
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+void _showErrorDialog(String errorMessage) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Error'),
+      content: Text(errorMessage),
+      actions: [
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
 
   // ✅ NEW: Function to show photo source options
   Future<void> _showPhotoSourceOptions(bool isProfilePhoto) async {
@@ -250,6 +317,8 @@ class _DriverProfileSetupPageState extends State<DriverProfileSetupPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(responseData['message'] ?? "Profile setup completed")),
         );
+          await _submitForVerification();
+
         if (mounted) {
           Navigator.pushReplacement(
             context,

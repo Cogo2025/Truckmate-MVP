@@ -6,7 +6,7 @@ import 'package:http_parser/http_parser.dart' as http_parser;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:mime/mime.dart'; // Add this package to pubspec.yaml
+import 'package:mime/mime.dart';
 
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/driver_main_navigation.dart';
@@ -26,11 +26,27 @@ class EditDriverProfilePage extends StatefulWidget {
   State<EditDriverProfilePage> createState() => _EditDriverProfilePageState();
 }
 
-class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
+class _EditDriverProfilePageState extends State<EditDriverProfilePage>
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   String? _errorMessage;
   bool _isSubmitting = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+
+  // Color scheme
+  static const Color primaryColor = Color(0xFF6366F1); // Indigo
+  static const Color secondaryColor = Color(0xFF10B981); // Emerald
+  static const Color accentColor = Color(0xFFF59E0B); // Amber
+  static const Color errorColor = Color(0xFFEF4444); // Red
+  static const Color surfaceColor = Color(0xFFF8FAFC); // Light gray
+  static const Color cardColor = Colors.white;
+  static const LinearGradient primaryGradient = LinearGradient(
+    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 
   // Form controllers
   final TextEditingController _nameController = TextEditingController();
@@ -84,6 +100,14 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _animationController.forward();
     _initializeForm();
   }
 
@@ -109,14 +133,12 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
     // Truck types
     if (widget.profileData['knownTruckTypes'] != null) {
       _knownTruckTypes = List<String>.from(widget.profileData['knownTruckTypes']);
-      // Add any new types that weren't previously in the profile but are in our master list
       for (var type in _availableTruckTypes) {
         if (!_knownTruckTypes.contains(type)) {
           _knownTruckTypes.add(type);
         }
       }
     } else {
-      // If no truck types were stored before, initialize with all available types
       _knownTruckTypes = List.from(_availableTruckTypes);
     }
 
@@ -126,13 +148,11 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
   }
 
   bool _isValidImageFile(File file) {
-    // Check file extension
     final extension = file.path.toLowerCase().split('.').last;
     if (!_allowedImageExtensions.any((ext) => ext.substring(1) == extension)) {
       return false;
     }
 
-    // Check MIME type
     final mimeType = lookupMimeType(file.path);
     if (mimeType == null || !_allowedImageTypes.contains(mimeType)) {
       return false;
@@ -143,13 +163,12 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
 
   Future<void> _pickImage(bool isLicensePhoto) async {
     try {
-      // Show options to pick from camera or gallery
       final source = await _showImageSourceDialog();
       if (source == null) return;
 
       final pickedFile = await _picker.pickImage(
         source: source,
-        imageQuality: 80, // Compress image to reduce size
+        imageQuality: 80,
         maxWidth: 1024,
         maxHeight: 1024,
       );
@@ -157,15 +176,13 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
       if (pickedFile != null) {
         final file = File(pickedFile.path);
         
-        // Validate the image file
         if (!_isValidImageFile(file)) {
           _showError('Please select a valid image file (JPEG, JPG, PNG, or GIF)');
           return;
         }
 
-        // Check file size (optional - limit to 5MB)
         final fileSize = await file.length();
-        if (fileSize > 5 * 1024 * 1024) { // 5MB limit
+        if (fileSize > 5 * 1024 * 1024) {
           _showError('Image file size must be less than 5MB');
           return;
         }
@@ -188,24 +205,91 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Select Image Source'),
+          backgroundColor: cardColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Select Image Source',
+            style: TextStyle(
+              color: primaryColor,
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Gallery'),
+              _buildImageSourceOption(
+                icon: Icons.photo_library,
+                title: 'Gallery',
+                subtitle: 'Choose from gallery',
+                color: secondaryColor,
                 onTap: () => Navigator.pop(context, ImageSource.gallery),
               ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera),
-                title: const Text('Camera'),
+              const SizedBox(height: 16),
+              _buildImageSourceOption(
+                icon: Icons.photo_camera,
+                title: 'Camera',
+                subtitle: 'Take a new photo',
+                color: accentColor,
                 onTap: () => Navigator.pop(context, ImageSource.camera),
               ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildImageSourceOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -227,6 +311,19 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
       initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: primaryColor,
+              onPrimary: Colors.white,
+              surface: cardColor,
+              onSurface: Colors.black87,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() {
@@ -238,8 +335,16 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: errorColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 4),
       ),
     );
@@ -248,8 +353,16 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
   void _showSuccess(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: secondaryColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -275,13 +388,11 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
     }
 
     try {
-      // First update user info if changed
       if (_nameController.text != widget.userData['name'] || 
           _phoneController.text != widget.userData['phone']) {
         await _updateUserInfo(token);
       }
 
-      // Then update driver profile
       await _updateDriverProfile(token);
 
       if (mounted) {
@@ -321,14 +432,12 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
   }
 
   Future<void> _updateDriverProfile(String token) async {
-    // Create multipart request
     final request = http.MultipartRequest(
       'PATCH',
       Uri.parse(ApiConfig.driverProfile),
     );
     request.headers['Authorization'] = 'Bearer $token';
 
-    // Add text fields
     request.fields['experience'] = _experienceController.text.trim();
     request.fields['licenseType'] = _licenseTypeController.text.trim();
     request.fields['licenseNumber'] = _licenseNumberController.text.trim();
@@ -338,7 +447,6 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
     request.fields['location'] = _locationController.text.trim();
     request.fields['knownTruckTypes'] = jsonEncode(_knownTruckTypes);
 
-    // Add license photo if selected
     if (_licensePhotoFile != null) {
       final mimeType = lookupMimeType(_licensePhotoFile!.path) ?? 'image/jpeg';
       request.files.add(await http.MultipartFile.fromPath(
@@ -348,7 +456,6 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
       ));
     }
 
-    // Add profile photo if selected
     if (_profilePhotoFile != null) {
       final mimeType = lookupMimeType(_profilePhotoFile!.path) ?? 'image/jpeg';
       request.files.add(await http.MultipartFile.fromPath(
@@ -358,7 +465,6 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
       ));
     }
 
-    // Send request
     final response = await request.send();
     final responseBody = await response.stream.bytesToString();
 
@@ -373,405 +479,747 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage> {
     required bool isLicensePhoto,
     String? existingPhotoUrl,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            // Display current photo or placeholder
-            if (isLicensePhoto ? _licensePhotoFile != null : _profilePhotoFile != null)
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
               Container(
-                width: 100,
-                height: 100,
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
+                  color: primaryColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    isLicensePhoto ? _licensePhotoFile! : _profilePhotoFile!,
-                    fit: BoxFit.cover,
+                child: Icon(
+                  isLicensePhoto ? Icons.credit_card : Icons.account_circle,
+                  color: primaryColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              // Photo display
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [
+                      primaryColor.withOpacity(0.1),
+                      secondaryColor.withOpacity(0.1),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: primaryColor.withOpacity(0.3),
+                    width: 2,
                   ),
                 ),
-              )
-            else if (existingPhotoUrl != null && existingPhotoUrl.isNotEmpty)
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    existingPhotoUrl,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const Center(child: CircularProgressIndicator());
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image, color: Colors.grey),
-                          Text('Failed to load', style: TextStyle(fontSize: 10)),
-                        ],
-                      );
-                    },
-                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  child: _buildPhotoWidget(isLicensePhoto, existingPhotoUrl),
                 ),
-              )
-            else
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
                   children: [
-                    Icon(Icons.photo_camera, size: 40, color: Colors.grey),
-                    Text('No Image', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    _buildPhotoButton(
+                      icon: Icons.cloud_upload_outlined,
+                      label: 'Upload Photo',
+                      color: primaryColor,
+                      onPressed: () => _pickImage(isLicensePhoto),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPhotoButton(
+                      icon: Icons.delete_outline,
+                      label: 'Remove Photo',
+                      color: errorColor,
+                      onPressed: () => _removePhoto(isLicensePhoto),
+                    ),
                   ],
                 ),
               ),
-            const SizedBox(width: 16),
-            Column(
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
               children: [
-                ElevatedButton.icon(
-                  onPressed: () => _pickImage(isLicensePhoto),
-                  icon: const Icon(Icons.upload),
-                  label: const Text('Upload'),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  onPressed: () => _removePhoto(isLicensePhoto),
-                  icon: const Icon(Icons.delete),
-                  label: const Text('Remove'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
+                Icon(Icons.info_outline, color: accentColor, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Supported: JPEG, JPG, PNG, GIF (Max: 5MB)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoWidget(bool isLicensePhoto, String? existingPhotoUrl) {
+    if (isLicensePhoto ? _licensePhotoFile != null : _profilePhotoFile != null) {
+      return Image.file(
+        isLicensePhoto ? _licensePhotoFile! : _profilePhotoFile!,
+        fit: BoxFit.cover,
+      );
+    } else if (existingPhotoUrl != null && existingPhotoUrl.isNotEmpty) {
+      return Image.network(
+        existingPhotoUrl,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+              strokeWidth: 2,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.broken_image_outlined, color: Colors.grey[400], size: 32),
+              const SizedBox(height: 4),
+              Text(
+                'Failed to load',
+                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            isLicensePhoto ? Icons.credit_card : Icons.account_circle,
+            size: 40,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'No Photo',
+            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          ),
+        ],
+      );
+    }
+  }
+
+  Widget _buildPhotoButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label, style: const TextStyle(fontSize: 13)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'Supported formats: JPEG, JPG, PNG, GIF (Max size: 5MB)',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        const SizedBox(height: 16),
-      ],
+      ),
     );
   }
 
   Widget _buildTruckTypesField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Truck Types You Can Drive',
-          style: TextStyle(fontWeight: FontWeight.bold),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: secondaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.local_shipping,
+                  color: secondaryColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Truck Types You Can Drive',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _availableTruckTypes.map((type) {
+              final isSelected = _knownTruckTypes.contains(type);
+              return FilterChip(
+                label: Text(
+                  type,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : primaryColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _knownTruckTypes.add(type);
+                    } else {
+                      _knownTruckTypes.remove(type);
+                    }
+                  });
+                },
+                selectedColor: primaryColor,
+                checkmarkColor: Colors.white,
+                backgroundColor: primaryColor.withOpacity(0.1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: isSelected ? primaryColor : primaryColor.withOpacity(0.3),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+    Color? iconColor,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (iconColor ?? primaryColor).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor ?? primaryColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    String? Function(String?)? validator,
+    TextInputType? keyboardType,
+    bool readOnly = false,
+    VoidCallback? onTap,
+    Widget? suffixIcon,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: primaryColor),
+          suffixIcon: suffixIcon,
+          filled: true,
+          fillColor: surfaceColor,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: errorColor, width: 2),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: errorColor, width: 2),
+          ),
+          labelStyle: TextStyle(color: Colors.grey[600]),
+          floatingLabelStyle: const TextStyle(color: primaryColor),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _availableTruckTypes.map((type) {
-            final isSelected = _knownTruckTypes.contains(type);
-            return FilterChip(
-              label: Text(type),
-              selected: isSelected,
-              onSelected: (selected) {
-                setState(() {
-                  if (selected) {
-                    _knownTruckTypes.add(type);
-                  } else {
-                    _knownTruckTypes.remove(type);
-                  }
-                });
-              },
-            );
-          }).toList(),
+        validator: validator,
+        keyboardType: keyboardType,
+        readOnly: readOnly,
+        onTap: onTap,
+      ),
+    );
+  }
+
+  Widget _buildCustomDropdown({
+    required String label,
+    required IconData icon,
+    required String? value,
+    required List<DropdownMenuItem<String>> items,
+    required void Function(String?) onChanged,
+    String? Function(String?)? validator,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<String>(
+        value: value,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: primaryColor),
+          filled: true,
+          fillColor: surfaceColor,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: primaryColor, width: 2),
+          ),
+          labelStyle: TextStyle(color: Colors.grey[600]),
+          floatingLabelStyle: const TextStyle(color: primaryColor),
         ),
-        const SizedBox(height: 16),
-      ],
+        items: items,
+        onChanged: onChanged,
+        validator: validator,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Profile'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _isSubmitting ? null : _submitForm,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_errorMessage != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.red.shade300),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.error, color: Colors.red.shade600),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  style: TextStyle(color: Colors.red.shade600),
-                                ),
-                              ),
-                            ],
+      backgroundColor: surfaceColor,
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 120,
+            floating: false,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(
+                decoration: const BoxDecoration(
+                  gradient: primaryGradient,
+                ),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        const Text(
+                          'Edit Profile',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ),
-                    // Personal Information Section
-                    const Text(
-                      'Personal Information',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(),
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name',
-                        prefixIcon: Icon(Icons.person),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your name';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _phoneController,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone Number',
-                        prefixIcon: Icon(Icons.phone),
-                      ),
-                      keyboardType: TextInputType.phone,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your phone number';
-                        }
-                        if (!RegExp(r'^[+]?[\d\s\-\(\)]{10,}$').hasMatch(value)) {
-                          return 'Please enter a valid phone number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedGender,
-                      decoration: const InputDecoration(
-                        labelText: 'Gender',
-                        prefixIcon: Icon(Icons.person_outline),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'Male', child: Text('Male')),
-                        DropdownMenuItem(value: 'Female', child: Text('Female')),
-                        DropdownMenuItem(value: 'Other', child: Text('Other')),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Update your driver information',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 16,
+                          ),
+                        ),
                       ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedGender = value;
-                        });
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select your gender';
-                        }
-                        return null;
-                      },
                     ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _ageController,
-                      decoration: const InputDecoration(
-                        labelText: 'Age',
-                        prefixIcon: Icon(Icons.calendar_today),
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your age';
-                        }
-                        if (int.tryParse(value) == null) {
-                          return 'Please enter a valid number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _locationController,
-                      decoration: const InputDecoration(
-                        labelText: 'Location',
-                        prefixIcon: Icon(Icons.location_on),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your location';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    // Profile Photo Section
-                    _buildPhotoField(
-                      label: 'Profile Photo',
-                      isLicensePhoto: false,
-                      existingPhotoUrl: _profilePhotoUrl,
-                    ),
-                    // Driver Information Section
-                    const Text(
-                      'Driver Information',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(),
-                    TextFormField(
-                      controller: _experienceController,
-                      decoration: const InputDecoration(
-                        labelText: 'Years of Experience',
-                        prefixIcon: Icon(Icons.work),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your experience';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _licenseTypeController,
-                      decoration: const InputDecoration(
-                        labelText: 'License Type',
-                        prefixIcon: Icon(Icons.drive_eta),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your license type';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _licenseNumberController,
-                      decoration: const InputDecoration(
-                        labelText: 'License Number',
-                        prefixIcon: Icon(Icons.confirmation_number),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your license number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _licenseExpiryController,
-                      decoration: InputDecoration(
-                        labelText: 'License Expiry Date',
-                        prefixIcon: const Icon(Icons.calendar_today),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.date_range),
-                          onPressed: () => _selectDate(context),
-                        ),
-                      ),
-                      readOnly: true,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select expiry date';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    // Truck Types Section
-                    _buildTruckTypesField(),
-                    // License Photo Section
-                    _buildPhotoField(
-                      label: 'License Photo',
-                      isLicensePhoto: true,
-                      existingPhotoUrl: _licensePhotoUrl,
-                    ),
-                    const SizedBox(height: 24),
-                    // Submit Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isSubmitting ? null : _submitForm,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        child: _isSubmitting
-                            ? const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text('Saving...'),
-                                ],
-                              )
-                            : const Text('Save Changes'),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                  ),
                 ),
               ),
             ),
+            backgroundColor: primaryColor,
+            elevation: 0,
+            iconTheme: const IconThemeData(color: Colors.white),
+            actions: [
+              Container(
+                margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+                child: ElevatedButton.icon(
+                  onPressed: _isSubmitting ? null : _submitForm,
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save, size: 18),
+                  label: Text(_isSubmitting ? 'Saving...' : 'Save'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: primaryColor,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SliverToBoxAdapter(
+            child: _isLoading
+                ? Container(
+                    height: MediaQuery.of(context).size.height * 0.7,
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                      ),
+                    ),
+                  )
+                : FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          children: [
+                            if (_errorMessage != null)
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: errorColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: errorColor.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.error_outline, color: errorColor),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        _errorMessage!,
+                                        style: TextStyle(color: errorColor),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                            // Profile Photo Section
+                            _buildPhotoField(
+                              label: 'Profile Photo',
+                              isLicensePhoto: false,
+                              existingPhotoUrl: _profilePhotoUrl,
+                            ),
+
+                            // Personal Information Section
+                            _buildSectionCard(
+                              title: 'Personal Information',
+                              icon: Icons.person_outline,
+                              children: [
+                                _buildCustomTextField(
+                                  controller: _nameController,
+                                  label: 'Full Name',
+                                  icon: Icons.person,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your name';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomTextField(
+                                  controller: _phoneController,
+                                  label: 'Phone Number',
+                                  icon: Icons.phone,
+                                  keyboardType: TextInputType.phone,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your phone number';
+                                    }
+                                    if (!RegExp(r'^[+]?[\d\s\-\(\)]{10,}$').hasMatch(value)) {
+                                      return 'Please enter a valid phone number';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomDropdown(
+                                  label: 'Gender',
+                                  icon: Icons.person_outline,
+                                  value: _selectedGender,
+                                  items: const [
+                                    DropdownMenuItem(value: 'Male', child: Text('Male')),
+                                    DropdownMenuItem(value: 'Female', child: Text('Female')),
+                                    DropdownMenuItem(value: 'Other', child: Text('Other')),
+                                  ],
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _selectedGender = value;
+                                    });
+                                  },
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please select your gender';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomTextField(
+                                  controller: _ageController,
+                                  label: 'Age',
+                                  icon: Icons.cake,
+                                  keyboardType: TextInputType.number,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your age';
+                                    }
+                                    if (int.tryParse(value) == null) {
+                                      return 'Please enter a valid number';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomTextField(
+                                  controller: _locationController,
+                                  label: 'Location',
+                                  icon: Icons.location_on,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your location';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // Driver Information Section
+                            _buildSectionCard(
+                              title: 'Driver Information',
+                              icon: Icons.drive_eta,
+                              iconColor: secondaryColor,
+                              children: [
+                                _buildCustomTextField(
+                                  controller: _experienceController,
+                                  label: 'Years of Experience',
+                                  icon: Icons.work_outline,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your experience';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomTextField(
+                                  controller: _licenseTypeController,
+                                  label: 'License Type',
+                                  icon: Icons.credit_card,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your license type';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomTextField(
+                                  controller: _licenseNumberController,
+                                  label: 'License Number',
+                                  icon: Icons.confirmation_number,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your license number';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                _buildCustomTextField(
+                                  controller: _licenseExpiryController,
+                                  label: 'License Expiry Date',
+                                  icon: Icons.calendar_today,
+                                  readOnly: true,
+                                  onTap: () => _selectDate(context),
+                                  suffixIcon: IconButton(
+                                    icon: const Icon(Icons.date_range, color: primaryColor),
+                                    onPressed: () => _selectDate(context),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please select expiry date';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            // Truck Types Section
+                            _buildTruckTypesField(),
+
+                            // License Photo Section
+                            _buildPhotoField(
+                              label: 'License Photo',
+                              isLicensePhoto: true,
+                              existingPhotoUrl: _licensePhotoUrl,
+                            ),
+
+                            // Submit Button
+                            Container(
+                              width: double.infinity,
+                              height: 56,
+                              margin: const EdgeInsets.only(bottom: 24),
+                              child: ElevatedButton(
+                                onPressed: _isSubmitting ? null : _submitForm,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primaryColor,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: _isSubmitting
+                                    ? const Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                            ),
+                                          ),
+                                          SizedBox(width: 12),
+                                          Text(
+                                            'Saving Changes...',
+                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                          ),
+                                        ],
+                                      )
+                                    : const Text(
+                                        'Save Changes',
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
   @override
   void dispose() {
+    _animationController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
     _ageController.dispose();

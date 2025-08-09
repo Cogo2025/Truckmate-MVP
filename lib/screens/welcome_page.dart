@@ -1,106 +1,140 @@
-import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
-import 'login_page.dart';
+import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:lottie/lottie.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'login_page.dart';
+import 'package:truckmate_app/services/auth_service.dart';
+import 'package:truckmate_app/screens/driver/driver_main_navigation.dart';
+import 'package:truckmate_app/screens/owner/owner_main_navigation.dart';
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
 
+  // Check if user is already logged in
+  Future<void> _checkExistingLogin(BuildContext context) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final authToken = prefs.getString('authToken');
+      final userData = prefs.getString('userData');
+      
+      if (authToken != null && userData != null) {
+        // Get a fresh token before proceeding
+        final freshToken = await AuthService.getFreshAuthToken();
+        if (freshToken != null) {
+          final user = jsonDecode(userData);
+          final role = user["role"];
+          if (role != null && role.isNotEmpty && role != "null") {
+            // Navigate directly to main app if role exists
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => 
+                role == "driver" ? const DriverMainNavigation() : const OwnerMainNavigation(),
+            )
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print("Error checking existing login: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFF7E00), // Vibrant orange
-              Color(0xFFFFA726), // Lighter orange
-              Colors.white,
-            ],
+    // Check for existing login when page loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkExistingLogin(context);
+    });
+
+    return Theme(
+      data: ThemeData.light().copyWith(
+        primaryColor: Colors.blueAccent,
+        scaffoldBackgroundColor: Colors.white,
+        textTheme: TextTheme(
+          headlineLarge: GoogleFonts.poppins(
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+          bodyLarge: GoogleFonts.poppins(
+            fontSize: 18,
+            color: Colors.black54,
           ),
         ),
-        child: SafeArea(
-          child: Center(
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueAccent,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            elevation: 4,
+            textStyle: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Spacer(flex: 2),
+                const Spacer(flex: 1),
                 FadeInAnimation(
                   child: Text(
                     "Welcome to TruckMate",
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: 1.2,
-                      shadows: [
-                        Shadow(
-                          blurRadius: 10.0,
-                          color: Colors.black26,
-                          offset: Offset(2.0, 2.0),
+                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                          shadows: [
+                            const Shadow(
+                              blurRadius: 4.0,
+                              color: Colors.black12,
+                              offset: Offset(1.0, 1.0),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
                   ),
                 ),
-                const SizedBox(height: 30),
+                const SizedBox(height: 24),
                 Lottie.asset(
                   'assets/animations/truck.json',
-                  width: 300,
-                  height: 300,
+                  width: 250,
+                  height: 250,
                   fit: BoxFit.contain,
                   repeat: true,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 FadeInAnimation(
-                  delay: Duration(milliseconds: 300),
+                  delay: const Duration(milliseconds: 300),
                   child: Text(
                     "Connecting Owners and Drivers",
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.5,
-                    ),
+                    style: Theme.of(context).textTheme.bodyLarge,
                   ),
                 ),
-                const Spacer(flex: 1),
+                const SizedBox(height: 48),
                 SlideInAnimation(
-                  child: ElevatedButton(
+                  child: ElevatedButton.icon(
                     onPressed: () {
-                      Navigator.pushReplacement(
+                      Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const LoginPage()),
                       );
                     },
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 50,
-                        vertical: 18,
-                      ),
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.orange,
-                      elevation: 8,
-                      shadowColor: Colors.black38,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
+                    icon: const Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 24,
                     ),
-                    child: const Text(
-                      "Get Started",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.orange,
-                      ),
-                    ),
+                    label: const Text("Get Started"),
                   ),
                 ),
-                const Spacer(flex: 2),
+                const Spacer(flex: 1),
               ],
             ),
           ),
@@ -110,23 +144,21 @@ class WelcomePage extends StatelessWidget {
   }
 }
 
-// Animation Widgets for better transitions
+// Rest of the animation widgets remain unchanged...
+// Animation Widgets (kept minimal and unchanged for functionality)
 class FadeInAnimation extends StatefulWidget {
   final Widget child;
   final Duration delay;
-
   const FadeInAnimation({
     super.key,
     required this.child,
     this.delay = const Duration(milliseconds: 0),
   });
-
   @override
   _FadeInAnimationState createState() => _FadeInAnimationState();
 }
 
-class _FadeInAnimationState extends State<FadeInAnimation>
-    with SingleTickerProviderStateMixin {
+class _FadeInAnimationState extends State<FadeInAnimation> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
 
@@ -172,8 +204,7 @@ class SlideInAnimation extends StatefulWidget {
   _SlideInAnimationState createState() => _SlideInAnimationState();
 }
 
-class _SlideInAnimationState extends State<SlideInAnimation>
-    with SingleTickerProviderStateMixin {
+class _SlideInAnimationState extends State<SlideInAnimation> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _animation;
 

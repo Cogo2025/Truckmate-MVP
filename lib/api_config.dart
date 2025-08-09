@@ -1,7 +1,6 @@
 class ApiConfig {
   // Base URL configuration
-  static const String baseUrl = 'http://192.168.29.138:5000'; // Your backend IP
-  
+  static const String baseUrl = 'https://truckmate-servermvp.onrender.com';
   // Health check endpoint
   static const String healthCheck = '$baseUrl/health';
   
@@ -45,7 +44,11 @@ class ApiConfig {
   
   // Upload endpoints
   static const String uploads = '$baseUrl/api/uploads';
-  
+   // Verification endpoints
+  static String get verificationStatus => '$baseUrl/api/verification/status';
+  static String get verificationCheckAccess => '$baseUrl/api/verification/check-access';
+  static String get verificationResubmit => '$baseUrl/api/verification/resubmit';
+
   // Utility methods for building query parameters
   static Uri buildUriWithQuery(String baseUrl, Map<String, dynamic> params) {
     final uri = Uri.parse(baseUrl);

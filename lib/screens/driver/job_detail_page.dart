@@ -4,6 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:truckmate_app/api_config.dart';
 import 'specific_owner_posts.dart';
+import 'package:carousel_slider/carousel_slider.dart'; // Add this dependency for better image gallery
+import 'package:animate_do/animate_do.dart'; // Add this for animations (optional, or use built-in animations)
+
+// Enhanced Theme Colors
+const primaryColor = Color(0xFF1976D2); // Blue for logistics theme
+const accentColor = Color.fromARGB(255, 255, 0, 0); // Orange accent
+const backgroundColor = Color(0xFFF5F5F5);
+const cardColor = Colors.white;
+const textColor = Colors.black87;
+const subTextColor = Colors.grey;
 
 class JobDetailPage extends StatefulWidget {
   final Map<String, dynamic> job;
@@ -18,7 +28,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
   bool isLoading = true;
   Map<String, dynamic>? ownerProfile;
   bool isLiked = false;
-  int likeCount = 0;
   String? errorMessage;
   String? likeId;
 
@@ -73,7 +82,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-      
+
       if (token == null) {
         throw Exception('Not authenticated');
       }
@@ -87,9 +96,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
       debugPrint('Job details body: ${response.body}');
 
       if (response.statusCode == 200) {
-        final jobData = jsonDecode(response.body);
         setState(() {
-          likeCount = jobData['likeCount'] ?? 0;
           isLoading = false;
         });
       } else {
@@ -111,7 +118,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-      
+
       if (token == null) return;
 
       final response = await http.get(
@@ -133,7 +140,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-      
+
       if (token == null) {
         debugPrint('No auth token found');
         return;
@@ -169,13 +176,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
         return;
       }
 
-      // Optimistic update
+      // Optimistic update with animation
       final bool previousLikeState = isLiked;
-      final int previousLikeCount = likeCount;
 
       setState(() {
         isLiked = !isLiked;
-        likeCount = isLiked ? likeCount + 1 : likeCount - 1;
       });
 
       http.Response response;
@@ -211,7 +216,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
         // Revert optimistic update
         setState(() {
           isLiked = previousLikeState;
-          likeCount = previousLikeCount;
         });
 
         // Parse error message
@@ -237,151 +241,200 @@ class _JobDetailPageState extends State<JobDetailPage> {
         SnackBar(
           content: Text(message),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
     }
   }
 
-  Widget _buildOwnerSection() {
+  Widget _buildOwnerInfo() {
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SpecificOwnerPosts(
-              ownerId: widget.job['ownerId'],
-              ownerName: ownerProfile?['companyName'] ?? 'Owner',
+        // Navigate to owner profile or specific posts if needed
+        if (ownerProfile != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SpecificOwnerPosts(ownerId: widget.job['ownerId'], ownerName: '',),
             ),
-          ),
-        );
+          );
+        }
       },
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              CircleAvatar(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Hero(
+              tag: 'ownerAvatar_${widget.job['ownerId']}',
+              child: CircleAvatar(
                 radius: 30,
+                backgroundColor: primaryColor.withOpacity(0.1),
                 backgroundImage: ownerProfile?['photoUrl'] != null
                     ? NetworkImage(ownerProfile!['photoUrl'])
                     : null,
                 child: ownerProfile?['photoUrl'] == null
-                    ? const Icon(Icons.person, size: 30)
+                    ? Icon(Icons.person, size: 30, color: primaryColor)
                     : null,
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      ownerProfile?['companyName'] ?? 'Owner',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ownerProfile?['name'] ??
+                        widget.job['ownerName'] ??
+                        widget.job['owner']?['name'] ??
+                        'Loading...',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
                     ),
-                    if (widget.job['sourceLocation'] != null)
-                      Text(
-                        widget.job['sourceLocation'],
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                  ],
-                ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  const SizedBox(height: 4),
+                  if (widget.job['sourceLocation'] != null)
+                    Row(
+                      children: [
+                        Icon(Icons.location_on, size: 16, color: subTextColor),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            widget.job['sourceLocation'],
+                            style: TextStyle(color: subTextColor, fontSize: 14),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
               ),
-              const Icon(Icons.arrow_forward_ios, size: 16),
-            ],
-          ),
+            ),
+            Icon(Icons.chevron_right, color: subTextColor),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildJobDetails() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.job['truckType'] ?? 'No Type Specified',
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
-        ),
-        const SizedBox(height: 16),
-        
-        // Salary Information
-        if (widget.job['salaryRange'] != null)
-          Row(
-            children: [
-              const Icon(Icons.attach_money, color: Colors.green),
-              const SizedBox(width: 8),
-              Text(
-                '₹${widget.job['salaryRange']['min']} - ₹${widget.job['salaryRange']['max']}',
-                style: const TextStyle(fontSize: 18),
-              ),
-            ],
-          ),
-        
-        const SizedBox(height: 16),
-        
-        // Job Description
-        if (widget.job['description'] != null)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Description:",
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Company Name
+          if (ownerProfile?['companyName'] != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                ownerProfile!['companyName'],
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: primaryColor,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
               ),
-              const SizedBox(height: 8),
-              Text(
+            ),
+
+          // Job Description
+          if (widget.job['description'] != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(
                 widget.job['description'],
-                style: const TextStyle(fontSize: 16),
+                style: const TextStyle(fontSize: 14, color: textColor, height: 1.5),
               ),
-            ],
-          ),
-        
-        const SizedBox(height: 16),
-        
-        // Additional Details
-        const Text(
-          "Details:",
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        
-        if (widget.job['experienceRequired'] != null)
-          _buildDetailRow("Experience", widget.job['experienceRequired']),
-        
-        if (widget.job['dutyType'] != null)
-          _buildDetailRow("Duty Type", widget.job['dutyType']),
-        
-        if (widget.job['variant'] != null && widget.job['variant']['type'] != null)
-          _buildDetailRow("Variant", widget.job['variant']['type']),
-        
-        if (widget.job['variant'] != null && widget.job['variant']['wheelsOrFeet'] != null)
-          _buildDetailRow("Configuration", widget.job['variant']['wheelsOrFeet']),
-      ],
+            ),
+
+          const Divider(color: Color.fromRGBO(238, 238, 238, 1)),
+
+          // Enhanced Detail Rows with Icons
+          if (widget.job['truckType'] != null)
+            _buildDetailRow(Icons.local_shipping, "Truck Type", widget.job['truckType']),
+
+          if (widget.job['salaryRange'] != null)
+            _buildDetailRow(
+              Icons.attach_money,
+              "Salary",
+              '₹${widget.job['salaryRange']['min']} - ₹${widget.job['salaryRange']['max']}',
+            ),
+
+          if (widget.job['experienceRequired'] != null)
+            _buildDetailRow(Icons.work_history, "Experience", widget.job['experienceRequired']),
+
+          if (widget.job['dutyType'] != null)
+            _buildDetailRow(Icons.schedule, "Duty Type", widget.job['dutyType']),
+
+          if (widget.job['variant'] != null && widget.job['variant']['type'] != null)
+            _buildDetailRow(Icons.category, "Variant", widget.job['variant']['type']),
+
+          if (widget.job['variant'] != null && widget.job['variant']['wheelsOrFeet'] != null)
+            _buildDetailRow(Icons.settings, "Configuration", widget.job['variant']['wheelsOrFeet']),
+        ],
+      ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(IconData icon, String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "$label: ",
-            style: const TextStyle(fontWeight: FontWeight.bold),
+          Icon(icon, size: 24, color: primaryColor),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: subTextColor,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 16, color: textColor),
+                ),
+              ],
+            ),
           ),
-          Text(value),
         ],
       ),
     );
@@ -389,110 +442,171 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
   Widget _buildImageGallery() {
     if (widget.job['lorryPhotos'] == null || widget.job['lorryPhotos'].isEmpty) {
-      return const SizedBox();
+      return Container();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 16),
-        const Text(
-          "Vehicle Photos",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 200,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              "Vehicle Photos",
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+          ),
+          CarouselSlider.builder(
             itemCount: widget.job['lorryPhotos'].length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: GestureDetector(
-                  onTap: () {
-                    _showFullScreenImage(index);
-                  },
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      widget.job['lorryPhotos'][index],
-                      fit: BoxFit.cover,
-                      width: 300,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        width: 300,
-                        color: Colors.grey[200],
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.broken_image, size: 40),
-                            Text('Failed to load image'),
-                          ],
-                        ),
+            itemBuilder: (context, index, realIndex) {
+              return GestureDetector(
+                onTap: () => _showFullScreenImage(index),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    widget.job['lorryPhotos'][index],
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: Colors.grey[200],
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image, size: 40, color: subTextColor),
+                          SizedBox(height: 8),
+                          Text('Failed to load image', style: TextStyle(color: subTextColor)),
+                        ],
                       ),
                     ),
                   ),
                 ),
               );
             },
+            options: CarouselOptions(
+              height: 200,
+              viewportFraction: 0.8,
+              enlargeCenterPage: true,
+              enableInfiniteScroll: false,
+              initialPage: 0,
+              autoPlay: true,
+              autoPlayInterval: const Duration(seconds: 3),
+              autoPlayAnimationDuration: const Duration(milliseconds: 800),
+              autoPlayCurve: Curves.fastOutSlowIn,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 16),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         title: const Text("Job Details"),
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           IconButton(
-            icon: Icon(
-              isLiked ? Icons.favorite : Icons.favorite_border,
-              color: isLiked ? Colors.red : null,
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: Icon(
+                isLiked ? Icons.favorite : Icons.favorite_border,
+                key: ValueKey<bool>(isLiked),
+                color: isLiked ? accentColor : Colors.white,
+              ),
             ),
             onPressed: _toggleLike,
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Center(child: Text('$likeCount')),
           ),
         ],
       ),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : errorMessage != null
               ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(errorMessage!),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            isLoading = true;
-                            errorMessage = null;
-                          });
-                          _fetchJobDetails();
-                          _fetchOwnerProfile();
-                          _checkIfLiked();
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 64, color: Colors.red),
+                        const SizedBox(height: 16),
+                        Text(
+                          errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 16, color: textColor),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              isLoading = true;
+                              errorMessage = null;
+                            });
+                            _fetchJobDetails();
+                            _fetchOwnerProfile();
+                            _checkIfLiked();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Retry', style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                    ),
                   ),
                 )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      _buildOwnerSection(),
-                      const SizedBox(height: 20),
-                      _buildJobDetails(),
-                      const SizedBox(height: 20),
-                      _buildImageGallery(),
-                    ],
+              : RefreshIndicator(
+                  onRefresh: () async {
+                    await _fetchJobDetails();
+                    await _fetchOwnerProfile();
+                    await _checkIfLiked();
+                  },
+                  color: primaryColor,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        // Image Gallery with fade-in animation
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 500),
+                          child: _buildImageGallery(),
+                        ),
+                        const SizedBox(height: 16),
+                        // Owner Info with animation
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 600),
+                          child: _buildOwnerInfo(),
+                        ),
+                        const SizedBox(height: 16),
+                        // Job Details with animation
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 700),
+                          child: _buildJobDetails(),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
     );

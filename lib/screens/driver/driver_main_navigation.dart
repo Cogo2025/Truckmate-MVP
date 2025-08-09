@@ -1,19 +1,20 @@
+// screens/driver/driver_main_navigation.dart - Enhanced version
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
 import 'driver_dashboard.dart';
 import 'driver_profile_page.dart';
 import 'driver_jobs_page.dart';
 import 'driver_likes_page.dart';
 import 'driver_profile_setup.dart';
-
 import '../../api_config.dart';
+import 'api_utils.dart';
 
 class DriverMainNavigation extends StatefulWidget {
   final int initialTabIndex;
-  const DriverMainNavigation({super.key, this.initialTabIndex = 0});
+  final String? filterByVehicle;
+  const DriverMainNavigation({super.key, this.initialTabIndex = 0, this.filterByVehicle});
 
   @override
   State<DriverMainNavigation> createState() => _DriverMainNavigationState();
@@ -23,14 +24,14 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
   int _selectedIndex = 0;
   bool _checkingProfile = false;
   Map<String, dynamic>? _userData;
+  Map<String, dynamic>? _verificationStatus;
   final GlobalKey<DriverLikesPageState> _likesPageKey = GlobalKey<DriverLikesPageState>();
-  
+
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   late AnimationController _rippleController;
   late Animation<double> _rippleAnimation;
 
-  // Enhanced navigation items with modern icons and colors
   final List<NavigationItem> _navigationItems = [
     NavigationItem(
       icon: Icons.dashboard_rounded,
@@ -44,12 +45,12 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
       ),
     ),
     NavigationItem(
-      icon: Icons.person_outline_rounded,
-      activeIcon: Icons.person_rounded,
-      label: "Profile",
-      color: const Color(0xFF00BCD4),
+      icon: Icons.favorite_border_rounded,
+      activeIcon: Icons.favorite_rounded,
+      label: "Likes",
+      color: const Color(0xFFFF5722),
       gradient: const LinearGradient(
-        colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+        colors: [Color(0xFFFF5722), Color(0xFFFF7043)],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
@@ -66,12 +67,12 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
       ),
     ),
     NavigationItem(
-      icon: Icons.favorite_border_rounded,
-      activeIcon: Icons.favorite_rounded,
-      label: "Likes",
-      color: const Color(0xFFFF5722),
+      icon: Icons.person_outline_rounded,
+      activeIcon: Icons.person_rounded,
+      label: "Profile",
+      color: const Color(0xFF00BCD4),
       gradient: const LinearGradient(
-        colors: [Color(0xFFFF5722), Color(0xFFFF7043)],
+        colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
@@ -80,12 +81,14 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
 
   List<Widget> get _pages => [
     const DriverDashboard(),
-    const DriverProfilePage(),
-    const DriverJobsPage(),
     DriverLikesPage(
       key: _likesPageKey,
       onRefresh: () => _likesPageKey.currentState?.refreshLikedJobs(),
     ),
+    DriverJobsPage(
+      filterByVehicle: _selectedIndex == 2 ? widget.filterByVehicle : null,
+    ),
+    const DriverProfilePage(),
   ];
 
   @override
@@ -93,12 +96,14 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     super.initState();
     _selectedIndex = widget.initialTabIndex;
     _loadUserData();
-    
+    _initializeAnimations();
+  }
+
+  void _initializeAnimations() {
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    
     _scaleAnimation = Tween<double>(
       begin: 1.0,
       end: 1.1,
@@ -111,7 +116,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-    
     _rippleAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -131,7 +135,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
-
     if (token == null) return;
 
     try {
@@ -144,22 +147,40 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
         setState(() {
           _userData = jsonDecode(response.body);
         });
+
+        // Load verification status
+        await _loadVerificationStatus();
       }
     } catch (e) {
       debugPrint("Error loading user data: $e");
     }
   }
 
-  Future<bool> _checkProfileCompletion() async {
-    if (_checkingProfile) return true;
-    
+  Future<void> _loadVerificationStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
+    if (token == null) return;
 
+    try {
+      final result = await ApiUtils.getVerificationStatus(token, context);
+      if (result['success']) {
+        setState(() {
+          _verificationStatus = result['data'];
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading verification status: $e");
+    }
+  }
+
+  Future<bool> _checkProfileCompletion() async {
+    if (_checkingProfile) return true;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
     if (token == null) return false;
 
     setState(() => _checkingProfile = true);
-    
+
     try {
       final response = await http.get(
         Uri.parse('${ApiConfig.driverProfile}/check-completion'),
@@ -168,14 +189,17 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        
         if (data['completed'] == false && _userData != null) {
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => DriverProfileSetupPage(userData: _userData!),
+              builder: (context) => DriverProfileSetupPage(userData: _userData! as Map<String, String>),
             ),
           );
-          return _checkProfileCompletion();
+          // Reload verification status after profile setup
+          await _loadVerificationStatus();
+          return await _checkProfileCompletion();
         }
         return data['completed'] == true;
       }
@@ -188,12 +212,115 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     }
   }
 
+  Future<bool> _checkVerificationStatus() async {
+    if (_verificationStatus == null) {
+      await _loadVerificationStatus();
+    }
+
+    if (_verificationStatus == null) return false;
+
+    final canAccess = _verificationStatus!['canAccessJobs'] ?? false;
+    
+    if (!canAccess) {
+      _showVerificationStatusDialog();
+      return false;
+    }
+    
+    return true;
+  }
+
+  void _showVerificationStatusDialog() {
+    if (_verificationStatus == null) return;
+
+    final status = _verificationStatus!['verificationStatus'];
+    String title = 'Verification Required';
+    String content = 'Your profile needs verification to access this feature.';
+    List<Widget> actions = [];
+
+    switch (status) {
+      case 'pending':
+        title = 'Verification Pending';
+        content = 'Your profile is being reviewed by our team. Please wait for approval.';
+        actions = [
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ];
+        break;
+
+      case 'rejected':
+        title = 'Verification Rejected';
+        content = 'Your profile was rejected. Please update your information and resubmit.';
+        actions = [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Navigate to profile edit page
+              setState(() => _selectedIndex = 3);
+            },
+            child: const Text('Update Profile'),
+          ),
+        ];
+        break;
+
+      case 'no_profile':
+        title = 'Complete Your Profile';
+        content = 'Please complete your driver profile to access jobs and other features.';
+        actions = [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              if (_userData != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => DriverProfileSetupPage(
+                      userData: _userData! as Map<String, String>,
+                    ),
+                  ),
+                );
+              }
+            },
+            child: const Text('Complete Profile'),
+          ),
+        ];
+        break;
+
+      default:
+        actions = [
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ];
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: actions,
+      ),
+    );
+  }
+
   void _onItemTapped(int index) async {
+    // Check profile completion and verification for protected tabs
     if (index == 1 || index == 2) {
       final isComplete = await _checkProfileCompletion();
       if (!isComplete) return;
+
+      final isVerified = await _checkVerificationStatus();
+      if (!isVerified) return;
     }
-    
+
     // Trigger animations
     _animationController.forward().then((_) {
       _animationController.reverse();
@@ -201,17 +328,75 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     _rippleController.forward().then((_) {
       _rippleController.reset();
     });
-    
+
     setState(() {
       _selectedIndex = index;
     });
-    
-    // Refresh likes page when navigating to it OR when already on it and tapping again
-    if (index == 3) {
+
+    // Refresh likes page when navigating to it
+    if (index == 1) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _likesPageKey.currentState?.refreshLikedJobs();
       });
     }
+  }
+
+  Widget _buildVerificationStatusIndicator() {
+    if (_verificationStatus == null) return const SizedBox.shrink();
+
+    final status = _verificationStatus!['verificationStatus'];
+    final canAccess = _verificationStatus!['canAccessJobs'] ?? false;
+
+    Color indicatorColor;
+    IconData indicatorIcon;
+    String statusText;
+
+    switch (status) {
+      case 'approved':
+        indicatorColor = Colors.green;
+        indicatorIcon = Icons.verified;
+        statusText = 'Verified';
+        break;
+      case 'pending':
+        indicatorColor = Colors.orange;
+        indicatorIcon = Icons.pending;
+        statusText = 'Pending';
+        break;
+      case 'rejected':
+        indicatorColor = Colors.red;
+        indicatorIcon = Icons.cancel;
+        statusText = 'Rejected';
+        break;
+      default:
+        indicatorColor = Colors.grey;
+        indicatorIcon = Icons.info;
+        statusText = 'Incomplete';
+    }
+
+    return Container(
+      margin: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: indicatorColor.withOpacity(0.1),
+        border: Border.all(color: indicatorColor.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(indicatorIcon, size: 16, color: indicatorColor),
+          const SizedBox(width: 4),
+          Text(
+            statusText,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: indicatorColor,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -219,14 +404,35 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     return WillPopScope(
       onWillPop: () async {
         if (_selectedIndex != 0) {
-          setState(() {
-            _selectedIndex = 0;
-          });
+          setState(() => _selectedIndex = 0);
           return false;
+        } else {
+          final shouldExit = await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Are you quitting?'),
+              content: const Text('Do you want to exit the app?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('No'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Yes'),
+                ),
+              ],
+            ),
+          );
+          return shouldExit == true;
         }
-        return true;
       },
       child: Scaffold(
+        appBar: _selectedIndex != 0 ? AppBar(
+          title: Text(_navigationItems[_selectedIndex].label),
+          automaticallyImplyLeading: false,
+          actions: [_buildVerificationStatusIndicator()],
+        ) : null,
         body: IndexedStack(
           index: _selectedIndex,
           children: _pages,
@@ -261,7 +467,9 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                 children: List.generate(_navigationItems.length, (index) {
                   final item = _navigationItems[index];
                   final isSelected = _selectedIndex == index;
-                  
+                  final needsVerification = (index == 1 || index == 2);
+                  final isVerified = _verificationStatus?['canAccessJobs'] ?? false;
+
                   return Expanded(
                     child: GestureDetector(
                       onTap: () => _onItemTapped(index),
@@ -298,28 +506,53 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                                       );
                                     },
                                   ),
-                                // Icon with scale animation
+                                // Icon with scale animation and verification indicator
                                 AnimatedBuilder(
                                   animation: _scaleAnimation,
                                   builder: (context, child) {
                                     return Transform.scale(
                                       scale: isSelected ? _scaleAnimation.value : 1.0,
-                                      child: Container(
-                                        width: 34,
-                                        height: 34,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: isSelected 
-                                              ? Colors.white.withOpacity(0.2)
-                                              : Colors.transparent,
-                                        ),
-                                        child: Icon(
-                                          isSelected ? item.activeIcon : item.icon,
-                                          size: 22,
-                                          color: isSelected 
-                                              ? Colors.white 
-                                              : Colors.grey.shade600,
-                                        ),
+                                      child: Stack(
+                                        children: [
+                                          Container(
+                                            width: 34,
+                                            height: 34,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: isSelected
+                                                  ? Colors.white.withOpacity(0.2)
+                                                  : Colors.transparent,
+                                            ),
+                                            child: Icon(
+                                              isSelected ? item.activeIcon : item.icon,
+                                              size: 22,
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : (needsVerification && !isVerified)
+                                                      ? Colors.grey.shade400
+                                                      : Colors.grey.shade600,
+                                            ),
+                                          ),
+                                          // Verification warning indicator
+                                          if (needsVerification && !isVerified)
+                                            Positioned(
+                                              right: -2,
+                                              top: -2,
+                                              child: Container(
+                                                width: 12,
+                                                height: 12,
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.orange,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.warning,
+                                                  size: 8,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     );
                                   },
@@ -332,7 +565,11 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                               style: TextStyle(
                                 fontSize: isSelected ? 11 : 10,
                                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                color: isSelected ? Colors.white : Colors.grey.shade600,
+                                color: isSelected 
+                                    ? Colors.white 
+                                    : (needsVerification && !isVerified)
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
                               ),
                               child: Text(
                                 item.label,
@@ -355,7 +592,7 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
   }
 }
 
-// Navigation Item Model
+// Navigation Item Model (unchanged)
 class NavigationItem {
   final IconData icon;
   final IconData activeIcon;

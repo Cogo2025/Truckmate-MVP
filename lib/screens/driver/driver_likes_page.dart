@@ -3,10 +3,10 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:async';
-
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/job_detail_page.dart';
 import 'package:truckmate_app/screens/driver/api_utils.dart';
+import 'package:truckmate_app/services/auth_service.dart'; // NEW: Import AuthService
 
 class DriverLikesPage extends StatefulWidget {
   const DriverLikesPage({Key? key, this.onRefresh}) : super(key: key);
@@ -17,7 +17,7 @@ class DriverLikesPage extends StatefulWidget {
 }
 
 class DriverLikesPageState extends State<DriverLikesPage> with WidgetsBindingObserver {
-  List<dynamic> likedJobs = [];
+  List<Map<String, dynamic>> likedJobs = [];  // Strong typing
   bool isLoading = true;
   bool showSlowConnectionMessage = false;
   String? errorMessage;
@@ -69,105 +69,94 @@ class DriverLikesPageState extends State<DriverLikesPage> with WidgetsBindingObs
   }
 
   Future<void> _fetchLikedJobs() async {
-    try {
-      setState(() {
-        isLoading = true;
-        errorMessage = null;
-        showSlowConnectionMessage = false;
-      });
+  try {
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+      showSlowConnectionMessage = false;
+    });
+    _startSlowConnectionTimer();
 
-      // Start the slow connection timer
-      _startSlowConnectionTimer();
-
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-
-      if (token == null) {
-        throw Exception('Not authenticated - please login again');
-      }
-
-      final response = await http.get(
-        Uri.parse('${ApiConfig.likes}/user'),
-        headers: ApiUtils.getAuthHeaders(token),
-      );
-
-      // Cancel the timer since we got a response
-      _cancelSlowConnectionTimer();
-
-      debugPrint('Response status: ${response.statusCode}');
-      debugPrint('Response body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final responseBody = response.body;
-        
-        if (responseBody.isEmpty || responseBody == 'null') {
-          setState(() {
-            likedJobs = [];
-            isLoading = false;
-          });
-          return;
-        }
-
-        try {
-          final dynamic decodedResponse = jsonDecode(responseBody);
-          
-          List<dynamic> jobs = [];
-          if (decodedResponse is List) {
-            jobs = decodedResponse;
-          } else if (decodedResponse is Map && decodedResponse.containsKey('data')) {
-            jobs = decodedResponse['data'] ?? [];
-          } else {
-            jobs = [];
-          }
-
-          setState(() {
-            likedJobs = jobs;
-            isLoading = false;
-          });
-          
-        } catch (jsonError) {
-          debugPrint('JSON decode error: $jsonError');
-          throw Exception('Invalid response format from server');
-        }
-        
-      } else {
-        String errorMsg = 'Failed to load liked jobs';
-        
-        try {
-          final errorResponse = jsonDecode(response.body);
-          errorMsg = errorResponse['error'] ?? 
-                    errorResponse['message'] ?? 
-                    'Server error (${response.statusCode})';
-        } catch (e) {
-          errorMsg = 'Server error (${response.statusCode})';
-        }
-        
-        throw Exception(errorMsg);
-      }
-    } catch (e) {
-      debugPrint('Error in _fetchLikedJobs: $e');
-      _cancelSlowConnectionTimer();
-      setState(() {
-        isLoading = false;
-        errorMessage = e.toString().replaceAll('Exception: ', '');
-      });
+    final token = await AuthService.getFreshAuthToken();
+    if (token == null) {
+      throw Exception('Not authenticated - please login again');
     }
-  }
 
-  Widget _buildJobItem(BuildContext context, Map<String, dynamic> job) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      elevation: 2,
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => JobDetailPage(job: job),
-            ),
-          );
-        },
-        child: Padding(
+    final response = await http.get(
+      Uri.parse(ApiConfig.userLikes),
+      headers: ApiUtils.getAuthHeaders(token),
+    );
+
+    _cancelSlowConnectionTimer();
+
+    debugPrint('Liked jobs response status: ${response.statusCode}');
+    debugPrint('Liked jobs response body: ${response.body}');
+
+    if (response.statusCode == 200) {
+      final responseBody = response.body;
+      if (responseBody.isEmpty || responseBody == 'null') {
+        setState(() {
+          likedJobs = [];
+          isLoading = false;
+        });
+        return;
+      }
+
+      try {
+        final dynamic decodedResponse = jsonDecode(responseBody);
+        List<Map<String, dynamic>> jobs = [];  // Typed local variable
+        if (decodedResponse is List) {
+          // Cast to List<Map<String, dynamic>>
+          jobs = (decodedResponse as List<dynamic>)
+              .map((item) => (item as Map<Object?, Object?>).cast<String, dynamic>())
+              .toList();
+        } else if (decodedResponse is Map && decodedResponse.containsKey('data')) {
+          final data = decodedResponse['data'] as List<dynamic>? ?? [];
+          jobs = data.map((item) => (item as Map<Object?, Object?>).cast<String, dynamic>()).toList();
+        }
+
+        setState(() {
+          likedJobs = jobs;
+          isLoading = false;
+        });
+      } catch (jsonError) {
+        debugPrint('JSON decode error: $jsonError');
+        throw Exception('Invalid response format from server');
+      }
+    } else {
+      String errorMsg = 'Failed to load liked jobs';
+      try {
+        final errorResponse = jsonDecode(response.body);
+        errorMsg = errorResponse['error'] ?? errorResponse['message'] ?? 'Server error (${response.statusCode})';
+      } catch (e) {
+        errorMsg = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMsg);
+    }
+  } catch (e) {
+    debugPrint('Error in _fetchLikedJobs: $e');
+    _cancelSlowConnectionTimer();
+    setState(() {
+      isLoading = false;
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+    });
+  }
+}
+
+  Widget _buildJobItem(BuildContext context, Map<String, dynamic> job) {  // Updated type
+  return Card(
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    elevation: 2,
+    child: InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => JobDetailPage(job: job),  // Now type-safe
+          ),
+        );
+      },
+            child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,13 +230,11 @@ class DriverLikesPageState extends State<DriverLikesPage> with WidgetsBindingObs
 
   String _getCompanyName(dynamic ownerData) {
     if (ownerData == null) return 'Unknown Company';
-    
-    if (ownerData is Map<String, dynamic>) {
+    if (ownerData is Map) {
       return ownerData['companyName'] ?? 'Unknown Company';
     } else if (ownerData is String) {
       return ownerData;
     }
-    
     return 'Unknown Company';
   }
 
