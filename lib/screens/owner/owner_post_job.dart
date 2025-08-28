@@ -633,166 +633,177 @@ Widget _buildWheelsTypeDropdown() {
   }
 
   // Upload Images
-  Future<List<String>> _uploadImages() async {
-    List<String> uploadedUrls = [];
+  
+// owner_post_job.dart - Updated _submitJob function
+// ...existing imports...
+Future<void> _submitJob() async {
+  if (!_formKey.currentState!.validate()) return;
+
+  _formKey.currentState!.save();
+  setState(() => isSubmitting = true);
+
+  if (lorryPhotos.isEmpty) {
+    setState(() => isSubmitting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Please add at least one lorry photo")),
+    );
+    return;
+  }
+
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('authToken');
+
+  if (token == null) {
+    setState(() => isSubmitting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Authentication token not found")),
+    );
+    return;
+  }
+
+  try {
+    // First upload images to Cloudinary
+    debugPrint('Starting image upload with ${lorryPhotos.length} images');
+    final imageUrls = await _uploadImagesToCloudinary(token);
+    debugPrint('Images uploaded successfully: ${imageUrls.length} URLs received');
     
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('authToken');
-      
-      if (token == null) {
-        throw Exception('Authentication token not found');
-      }
+    // Then create job with the Cloudinary URLs
+    final jobData = {
+      "truckType": truckType,
+      "variant": {
+        "type": variant,
+        "wheelsOrFeet": truckType == "Body Vehicle" ? wheelsType : variant,
+      },
+      "sourceLocation": sourceLocation,
+      "experienceRequired": experience,
+      "dutyType": dutyType,
+      "salaryType": salaryType,
+      "salaryRange": {
+        "min": salaryMin,
+        "max": salaryMax,
+      },
+      "description": description,
+      "phone": phone,
+      "lorryPhotos": imageUrls, // Cloudinary URLs
+    };
+    
+    debugPrint('Sending job data: ${jsonEncode(jobData)}');
+    
+    final response = await http.post(
+      Uri.parse(ApiConfig.jobs),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode(jobData),
+    );
 
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse(ApiConfig.uploads),
-      )..headers['Authorization'] = 'Bearer $token';
+    debugPrint('Response status: ${response.statusCode}');
+    debugPrint('Response body: ${response.body}');
 
-      for (var photo in lorryPhotos) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'images', 
-            photo.path,
-            contentType: MediaType.parse(photo.mimeType ?? 'image/jpeg'),
-          ),
-        );
-      }
-
-      final response = await request.send();
-      final responseBody = await response.stream.bytesToString();
-      final jsonResponse = jsonDecode(responseBody);
-
-      if (response.statusCode == 200) {
-        uploadedUrls = List<String>.from(jsonResponse['urls'] ?? []);
-        return uploadedUrls;
-      } else {
-        final errorMsg = jsonResponse['error'] ?? 'Unknown error';
-        throw Exception('Upload failed: $errorMsg (${response.statusCode})');
-      }
-    } catch (e) {
+    if (response.statusCode == 201) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Image upload failed: ${e.toString()}'),
-          duration: const Duration(seconds: 5),
+        const SnackBar(
+          content: Text("✅ Job Posted Successfully!"),
+          backgroundColor: Color(0xFF10B981),
+          duration: Duration(seconds: 2),
         ),
       );
-      rethrow;
+      _resetForm();
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const OwnerMainNavigation(initialTabIndex: 0),
+        ),
+      );
+    } else {
+      final err = jsonDecode(response.body);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err["error"] ?? "Error occurred: ${response.statusCode}")),
+      );
     }
+  } catch (e) {
+    debugPrint('Error in _submitJob: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Error: ${e.toString()}")),
+    );
+  } finally {
+    setState(() => isSubmitting = false);
   }
-Future<void> _submitJob() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    if (lorryPhotos.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please add at least one lorry photo")),
+}
+
+Future<List<String>> _uploadImagesToCloudinary(String token) async {
+  List<String> uploadedUrls = [];
+  
+  try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse(ApiConfig.jobImageUpload),
+    )..headers['Authorization'] = 'Bearer $token';
+
+    // Add all photos to the request - FIXED: Use 'images' instead of 'lorryPhotos'
+    for (var photo in lorryPhotos) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'images',  // CHANGED FROM 'lorryPhotos' TO 'images'
+          photo.path,
+          contentType: MediaType.parse(photo.mimeType ?? 'image/jpeg'),
+        ),
       );
-      return;
-    }
-    
-    _formKey.currentState!.save();
-
-    setState(() {
-      isSubmitting = true;
-    });
-
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-
-    if (token == null) {
-      setState(() {
-        isSubmitting = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Authentication token not found")),
-      );
-      return;
     }
 
-    try {
-      List<String> photoUrls = await _uploadImages();
-      
-      final response = await http.post(
-        Uri.parse(ApiConfig.jobs),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $token"
-        },
-        body: jsonEncode({
-          "truckType": truckType,
-          "variant": {
-            "type": variant,
-            "wheelsOrFeet": truckType == "Body Vehicle" ? wheelsType : variant,
-          },
-          "sourceLocation": sourceLocation,
-          "experienceRequired": experience,
-          "dutyType": dutyType,
-          "salaryType": salaryType,
-          "salaryRange": {
-            "min": int.tryParse(salaryMin) ?? 0,
-            "max": int.tryParse(salaryMax) ?? 0
-          },
-          "description": description,
-          "phone": phone,
-          "lorryPhotos": photoUrls,
-        }),
-      );
+    final response = await request.send();
+    final responseBody = await response.stream.bytesToString();
 
-      setState(() {
-        isSubmitting = false;
-      });
+    debugPrint('Upload response: $responseBody');
 
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("✅ Job Posted Successfully!"),
-            backgroundColor: Color(0xFF10B981),
-            duration: Duration(seconds: 2),
-          ),
-        );
-        
-        // Clear form (FIX: Added wheelsType reset)
-        _formKey.currentState!.reset();
-        setState(() {
-          truckType = '';
-          variant = '';
-          wheelsType = '';  // Reset new variable
-          sourceLocation = '';
-          experience = '';
-          dutyType = '';
-          salaryType = '';
-          salaryMin = '';
-          salaryMax = '';
-          description = '';
-          lorryPhotos.clear();
-        });
-
-        // Navigate to dashboard
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const OwnerMainNavigation(initialTabIndex: 0),
-              ),
-            );
-          }
-        });
+    if (response.statusCode == 200) {
+      final jsonResponse = jsonDecode(responseBody);
+      if (jsonResponse is Map && jsonResponse['urls'] is List) {
+        uploadedUrls = List<String>.from(jsonResponse['urls']);
       } else {
-        final err = jsonDecode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err["error"] ?? "Error occurred")),
-        );
+        throw Exception('Invalid response format from server');
       }
-    } catch (e) {
-      setState(() {
-        isSubmitting = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: ${e.toString()}")),
-      );
+    } else {
+      try {
+        final errorResponse = jsonDecode(responseBody);
+        final errorMsg = errorResponse['error'] ?? 'Unknown error';
+        throw Exception('Upload failed: $errorMsg (${response.statusCode})');
+      } catch (e) {
+        throw Exception('Upload failed with status ${response.statusCode}. Response: $responseBody');
+      }
     }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Image upload failed: ${e.toString()}'),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+    rethrow;
   }
+  
+  return uploadedUrls;
+}
+
+
+
+void _resetForm() {
+  _formKey.currentState?.reset();
+  setState(() {
+    truckType = '';
+    variant = '';
+    wheelsType = '';
+    sourceLocation = '';
+    experience = '';
+    dutyType = '';
+    salaryType = '';
+    salaryMin = '';
+    salaryMax = '';
+    description = '';
+    lorryPhotos.clear();
+  });
+}
 
   @override
   Widget build(BuildContext context) {

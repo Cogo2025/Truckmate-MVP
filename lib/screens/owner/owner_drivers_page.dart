@@ -2,30 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
 import '../../services/auth_service.dart'; // Import the updated AuthService
 import '../../api_config.dart';
+import 'unique_driver_profile.dart'; // Import the new profile page
 
 class OwnerDriversPage extends StatefulWidget {
   final String? initialTruckTypeFilter;
-  
+
   const OwnerDriversPage({
     super.key,
     this.initialTruckTypeFilter,
   });
 
   @override
-  State<OwnerDriversPage> createState() => _OwnerDriversPageState();
+  State createState() => _OwnerDriversPageState();
 }
 
 class _OwnerDriversPageState extends State<OwnerDriversPage> {
   bool isLoading = true;
-  List<dynamic> drivers = [];
+  List drivers = [];
   String? errorMessage;
   String? selectedLocation;
   String? selectedTruckType;
-  List<String> locations = [];
-  List<String> truckTypes = [];
+  List locations = [];
+  List truckTypes = [];
 
   @override
   void initState() {
@@ -37,114 +37,110 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
   }
 
   // Updated: Fetch with fresh token and retry on expiration
-Future<void> fetchAvailableDrivers() async {
-  setState(() {
-    isLoading = true;
-    errorMessage = null;
-  });
-
-  final freshToken = await AuthService.getFreshAuthToken();
-  if (freshToken == null) {
+  Future fetchAvailableDrivers() async {
     setState(() {
-      isLoading = false;
-      errorMessage = "Authentication failed. Please log in again.";
+      isLoading = true;
+      errorMessage = null;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Session expired. Please re-login.")),
-    );
-    // Optionally: Navigate to login page
-    // Navigator.pushReplacementNamed(context, '/login');
-    return;
-  }
 
-  try {
-    // Build query parameters
-    final params = <String, String>{};
-    if (selectedLocation != null && selectedLocation!.isNotEmpty) {
-      params['location'] = selectedLocation!;
-    }
-    if (selectedTruckType != null && selectedTruckType!.isNotEmpty) {
-      params['truckType'] = selectedTruckType!;
-    }
-
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/profile/driver/available')
-        .replace(queryParameters: params);
-    final response = await http.get(
-      uri,
-      headers: {"Authorization": "Bearer $freshToken"},
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+    final freshToken = await AuthService.getFreshAuthToken();
+    if (freshToken == null) {
       setState(() {
-        drivers = data['drivers'] ?? [];
         isLoading = false;
-        // Extract unique locations and truck types for filters (with explicit types)
-        locations = drivers
-            .map<String>((d) => d['location']?.toString() ?? 'Unknown')
-            .toSet()
-            .toList();
-        locations.removeWhere((loc) => loc == 'Unknown');
-        truckTypes = drivers
-            .expand<String>((d) =>
-                (d['truckTypes'] as List?)?.map<String>((t) => t?.toString() ?? '') ?? <String>[])
-            .toSet()
-            .toList();
+        errorMessage = "Authentication failed. Please log in again.";
       });
-    } else if (response.body.contains('auth/id-token-expired')) {
-      // Retry once with forced refresh
-      final retryToken = await AuthService.getFreshAuthToken();
-      if (retryToken != null) {
-        final retryResponse = await http.get(
-          uri,
-          headers: {"Authorization": "Bearer $retryToken"},
-        );
-        if (retryResponse.statusCode == 200) {
-          // Process successful retry (fully repeated extraction logic with explicit types)
-          final data = jsonDecode(retryResponse.body);
-          setState(() {
-            drivers = data['drivers'] ?? [];
-            isLoading = false;
-            // Extract unique locations and truck types for filters (with explicit types)
-            locations = drivers
-                .map<String>((d) => d['location']?.toString() ?? 'Unknown')
-                .toSet()
-                .toList();
-            locations.removeWhere((loc) => loc == 'Unknown');
-            truckTypes = drivers
-                .expand<String>((d) =>
-                    (d['truckTypes'] as List?)?.map<String>((t) => t?.toString() ?? '') ?? <String>[])
-                .toSet()
-                .toList();
-          });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Session expired. Please re-login.")),
+      );
+      return;
+    }
+
+    try {
+      // Build query parameters
+      final params = <String, String>{};
+      if (selectedLocation != null && selectedLocation!.isNotEmpty) {
+        params['location'] = selectedLocation!;
+      }
+      if (selectedTruckType != null && selectedTruckType!.isNotEmpty) {
+        params['truckType'] = selectedTruckType!;
+      }
+
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/profile/driver/available')
+          .replace(queryParameters: params);
+      final response = await http.get(
+        uri,
+        headers: {"Authorization": "Bearer $freshToken"},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          drivers = data['drivers'] ?? [];
+          isLoading = false;
+          // Extract unique locations and truck types for filters (with explicit types)
+          locations = drivers
+              .map((d) => d['location']?.toString() ?? 'Unknown')
+              .toSet()
+              .toList();
+          locations.removeWhere((loc) => loc == 'Unknown');
+          truckTypes = drivers
+              .expand((d) =>
+                  (d['truckTypes'] as List?)?.map((t) => t?.toString() ?? '') ?? [])
+              .toSet()
+              .toList();
+        });
+      } else if (response.body.contains('auth/id-token-expired')) {
+        // Retry once with forced refresh
+        final retryToken = await AuthService.getFreshAuthToken();
+        if (retryToken != null) {
+          final retryResponse = await http.get(
+            uri,
+            headers: {"Authorization": "Bearer $retryToken"},
+          );
+          if (retryResponse.statusCode == 200) {
+            final data = jsonDecode(retryResponse.body);
+            setState(() {
+              drivers = data['drivers'] ?? [];
+              isLoading = false;
+              locations = drivers
+                  .map((d) => d['location']?.toString() ?? 'Unknown')
+                  .toSet()
+                  .toList();
+              locations.removeWhere((loc) => loc == 'Unknown');
+              truckTypes = drivers
+                  .expand((d) =>
+                      (d['truckTypes'] as List?)?.map((t) => t?.toString() ?? '') ?? [])
+                  .toSet()
+                  .toList();
+            });
+          } else {
+            setState(() {
+              isLoading = false;
+              errorMessage = "Retry failed: ${retryResponse.reasonPhrase}";
+            });
+          }
         } else {
           setState(() {
             isLoading = false;
-            errorMessage = "Retry failed: ${retryResponse.reasonPhrase}";
+            errorMessage = "Token refresh failed during retry";
           });
         }
       } else {
         setState(() {
           isLoading = false;
-          errorMessage = "Token refresh failed during retry";
+          errorMessage = "Failed to fetch available drivers: ${response.reasonPhrase}";
         });
       }
-    } else {
+    } catch (e) {
       setState(() {
         isLoading = false;
-        errorMessage = "Failed to fetch available drivers: ${response.reasonPhrase}";
+        errorMessage = "Error: $e";
       });
     }
-  } catch (e) {
-    setState(() {
-      isLoading = false;
-      errorMessage = "Error: $e";
-    });
   }
-}
 
   // Updated: Toggle like with fresh token
-  Future<void> _toggleDriverLike(Map<String, dynamic> driver) async {
+  Future _toggleDriverLike(Map driver) async {
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -177,7 +173,7 @@ Future<void> fetchAvailableDrivers() async {
   }
 
   // Updated: Like driver with fresh token
-  Future<void> _likeDriver(String driverId, String token) async {
+  Future _likeDriver(String driverId, String token) async {
     try {
       final response = await http.post(
         Uri.parse(ApiConfig.likeDriver),
@@ -187,11 +183,11 @@ Future<void> fetchAvailableDrivers() async {
         },
         body: jsonEncode({'driverId': driverId}),
       );
+
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver added to favorites")),
         );
-        // Optionally refresh the list after like
         await fetchAvailableDrivers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -206,17 +202,17 @@ Future<void> fetchAvailableDrivers() async {
   }
 
   // Updated: Unlike driver with fresh token
-  Future<void> _unlikeDriver(String driverId, String token) async {
+  Future _unlikeDriver(String driverId, String token) async {
     try {
       final response = await http.delete(
         Uri.parse('${ApiConfig.unlikeDriver}$driverId'),
         headers: {"Authorization": "Bearer $token"},
       );
+
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver removed from favorites")),
         );
-        // Optionally refresh the list after unlike
         await fetchAvailableDrivers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -240,6 +236,7 @@ Future<void> fetchAvailableDrivers() async {
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=$driverId'),
         headers: {"Authorization": "Bearer $freshToken"},
       );
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['isLiked'] ?? false;
@@ -249,6 +246,7 @@ Future<void> fetchAvailableDrivers() async {
       return false;
     }
   }
+
   Widget _buildFilterDialog() {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -285,7 +283,6 @@ Future<void> fetchAvailableDrivers() async {
               ],
             ),
             const SizedBox(height: 20),
-            
             // Location Filter
             Text(
               'Location',
@@ -302,7 +299,7 @@ Future<void> fetchAvailableDrivers() async {
                 border: Border.all(color: Colors.grey.shade300),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: DropdownButtonFormField<String>(
+              child: DropdownButtonFormField<String?>(
                 value: selectedLocation,
                 decoration: InputDecoration(
                   labelText: 'Select Location',
@@ -313,7 +310,7 @@ Future<void> fetchAvailableDrivers() async {
                 ),
                 dropdownColor: Colors.white,
                 items: [
-                  DropdownMenuItem(
+                  DropdownMenuItem<String?>(
                     value: null,
                     child: Text(
                       'All Locations',
@@ -321,7 +318,7 @@ Future<void> fetchAvailableDrivers() async {
                     ),
                   ),
                   ...locations.map((location) {
-                    return DropdownMenuItem(
+                    return DropdownMenuItem<String?>(
                       value: location,
                       child: Text(
                         location,
@@ -337,9 +334,7 @@ Future<void> fetchAvailableDrivers() async {
                 },
               ),
             ),
-            
             const SizedBox(height: 16),
-            
             // Truck Type Filter
             Text(
               'Truck Type',
@@ -356,7 +351,7 @@ Future<void> fetchAvailableDrivers() async {
                 border: Border.all(color: Colors.grey.shade300),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: DropdownButtonFormField<String>(
+              child: DropdownButtonFormField<String?>(
                 value: selectedTruckType,
                 decoration: InputDecoration(
                   labelText: 'Select Truck Type',
@@ -367,7 +362,7 @@ Future<void> fetchAvailableDrivers() async {
                 ),
                 dropdownColor: Colors.white,
                 items: [
-                  DropdownMenuItem(
+                  DropdownMenuItem<String?>(
                     value: null,
                     child: Text(
                       'All Truck Types',
@@ -375,7 +370,7 @@ Future<void> fetchAvailableDrivers() async {
                     ),
                   ),
                   ...truckTypes.map((type) {
-                    return DropdownMenuItem(
+                    return DropdownMenuItem<String?>(
                       value: type,
                       child: Text(
                         type,
@@ -391,9 +386,7 @@ Future<void> fetchAvailableDrivers() async {
                 },
               ),
             ),
-            
             const SizedBox(height: 24),
-            
             // Action Buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -412,13 +405,7 @@ Future<void> fetchAvailableDrivers() async {
                 ),
                 Row(
                   children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.grey.shade600,
-                      ),
-                      child: const Text('Cancel'),
-                    ),
+                    
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () {
@@ -446,10 +433,8 @@ Future<void> fetchAvailableDrivers() async {
     );
   }
 
-
-  Widget _buildDriverCard(Map<String, dynamic> driver) {
+  Widget _buildDriverCard(Map driver) {
     final theme = Theme.of(context);
-    
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
@@ -476,11 +461,11 @@ Future<void> fetchAvailableDrivers() async {
                         ),
                         child: CircleAvatar(
                           radius: 30,
-                          backgroundImage: driver['photoUrl'] != null
+                          backgroundImage: driver['photoUrl'] != null && driver['photoUrl'].isNotEmpty
                               ? NetworkImage(driver['photoUrl'])
                               : null,
                           backgroundColor: Colors.grey.shade200,
-                          child: driver['photoUrl'] == null
+                          child: (driver['photoUrl'] == null || driver['photoUrl'].isEmpty)
                               ? Icon(Icons.person, size: 30, color: Colors.grey.shade400)
                               : null,
                         ),
@@ -504,7 +489,6 @@ Future<void> fetchAvailableDrivers() async {
                     ],
                   ),
                   const SizedBox(width: 16),
-                  
                   // Driver Info
                   Expanded(
                     child: Column(
@@ -558,7 +542,6 @@ Future<void> fetchAvailableDrivers() async {
                       ],
                     ),
                   ),
-                  
                   // Action Buttons
                   Column(
                     children: [
@@ -593,7 +576,7 @@ Future<void> fetchAvailableDrivers() async {
                   height: 32,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
-                    children: (driver['truckTypes'] as List<dynamic>)
+                    children: (driver['truckTypes'] as List)
                         .map((type) => Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: Chip(
@@ -622,292 +605,12 @@ Future<void> fetchAvailableDrivers() async {
     );
   }
 
-  void _viewDriverProfile(Map<String, dynamic> driver) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        builder: (context, scrollController) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: Column(
-              children: [
-                // Handle
-                Container(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Profile Header
-                        Center(
-                          child: Column(
-                            children: [
-                              CircleAvatar(
-                                radius: 50,
-                                backgroundImage: driver['photoUrl'] != null
-                                    ? NetworkImage(driver['photoUrl'])
-                                    : null,
-                                backgroundColor: Colors.grey.shade200,
-                                child: driver['photoUrl'] == null
-                                    ? const Icon(Icons.person, size: 50, color: Colors.grey)
-                                    : null,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                driver['name'] ?? 'Unknown Driver',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.shade100,
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: const Text(
-                                  'Available',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 32),
-                        
-                        // Contact Information
-                        _buildProfileSection(
-                          title: 'Contact Information',
-                          icon: Icons.contact_phone,
-                          children: [
-                            _buildProfileItem(Icons.phone, 'Phone', driver['phone'] ?? 'N/A'),
-                            _buildProfileItem(Icons.email, 'Email', driver['email'] ?? 'N/A'),
-                            _buildProfileItem(Icons.location_on, 'Location', driver['location'] ?? 'N/A'),
-                          ],
-                        ),
-                        
-                        const SizedBox(height: 24),
-                        
-                        // Experience & Skills
-                        _buildProfileSection(
-                          title: 'Experience & Skills',
-                          icon: Icons.work,
-                          children: [
-                            _buildProfileItem(Icons.timer, 'Experience', driver['experience'] ?? 'N/A'),
-                            _buildProfileItem(Icons.star, 'Rating', '${driver['rating'] ?? 'N/A'}'),
-                            _buildProfileItem(Icons.local_shipping, 'Truck Types', 
-                                driver['truckTypes']?.join(', ') ?? 'N/A'),
-                          ],
-                        ),
-                        
-                        const SizedBox(height: 24),
-                        
-                        // Additional Info
-                        if (driver['bio'] != null || driver['specializations'] != null)
-                          _buildProfileSection(
-                            title: 'Additional Information',
-                            icon: Icons.info,
-                            children: [
-                              if (driver['bio'] != null)
-                                _buildProfileItem(Icons.person, 'Bio', driver['bio']),
-                              if (driver['specializations'] != null)
-                                _buildProfileItem(Icons.build, 'Specializations', 
-                                    driver['specializations']?.join(', ') ?? 'N/A'),
-                            ],
-                          ),
-                        
-                        const SizedBox(height: 32),
-                        
-                        // Action Buttons
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _contactDriver(driver),
-                                icon: const Icon(Icons.phone),
-                                label: const Text('Contact'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFF5722),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _hireDriver(driver),
-                                icon: const Icon(Icons.person_add),
-                                label: const Text('Hire'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildProfileSection({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: Theme.of(context).primaryColor),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Column(
-            children: children,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProfileItem(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Theme.of(context).primaryColor.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 18, color: Theme.of(context).primaryColor),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _contactDriver(Map<String, dynamic> driver) {
-    // Implement contact functionality
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Contact Driver'),
-        content: Text('Contact ${driver['name']} at ${driver['phone']}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _hireDriver(Map<String, dynamic> driver) {
-    // Implement hire functionality
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Hire Driver'),
-        content: Text('Send hiring request to ${driver['name']}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Implement hire logic here
-            },
-            child: const Text('Send Request'),
-          ),
-        ],
+  // Modified: Navigate to new page instead of showing modal
+  void _viewDriverProfile(Map driver) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UniqueDriverProfile(driver: driver),
       ),
     );
   }
@@ -915,7 +618,6 @@ Future<void> fetchAvailableDrivers() async {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -1020,7 +722,6 @@ Future<void> fetchAvailableDrivers() async {
                 ],
               ),
             ),
-          
           // Main Content
           Expanded(
             child: isLoading

@@ -1,650 +1,348 @@
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:mime/mime.dart'; // Add this import
-
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mime/mime.dart';
 import 'package:truckmate_app/api_config.dart';
-import 'package:truckmate_app/screens/driver/driver_main_navigation.dart';
 
 class DriverProfileSetupPage extends StatefulWidget {
-  final Map<String, dynamic> userData;
-  const DriverProfileSetupPage({super.key, required this.userData});
+  final Map userData;
+  const DriverProfileSetupPage({Key? key, required this.userData}) : super(key: key);
 
   @override
-  State<DriverProfileSetupPage> createState() => _DriverProfileSetupPageState();
+  _DriverProfileSetupPageState createState() => _DriverProfileSetupPageState();
 }
 
 class _DriverProfileSetupPageState extends State<DriverProfileSetupPage> {
   final _formKey = GlobalKey<FormState>();
-  final List<String> truckTypes = [
-    "Body Vehicle",
-    "Trailer",
-    "Tipper",
-    "Gas Tanker",
-    "Wind Mill",
-    "Concrete Mixer",
-    "Petrol Tank",
-    "Container",
-    "Bulker"
-  ];
+  final _licenseNumberController = TextEditingController();
+  final _experienceController = TextEditingController();
+  final _ageController = TextEditingController();
+  final _locationController = TextEditingController();
 
-  // Form fields
-  String gender = '';
-  String experience = '';
-  String licenseType = '';
-  String licenseNumber = '';
-  String location = '';
-  String age = '';
-  DateTime? licenseExpiryDate;
-  List<String> selectedTruckTypes = [];
-  XFile? licensePhoto;
-  XFile? profilePhoto; // ✅ NEW: Added profile photo
-  
+  String? _gender;
+  DateTime? _licenseExpiryDate;
+  File? _profilePhoto;
+  File? _licenseFront;
+  File? _licenseBack;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+
   final ImagePicker _picker = ImagePicker();
-  bool _isLoading = false;
+  final List<String> _availableTruckTypes = [
+    "Body Vehicle", "Trailer", "Tipper", "Gas Tanker", "Wind Mill",
+    "Concrete Mixer", "Petrol Tank", "Container", "Bulker"
+  ];
+  List<String> _selectedTruckTypes = [];
 
-  Future<void> _pickLicensePhoto() async {
-    final picked = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 85, // Compress image to reduce size
-      maxWidth: 1024,   // Limit width to 1024px
-      maxHeight: 1024,  // Limit height to 1024px
-    );
-    if (picked != null) {
-      setState(() => licensePhoto = picked);
+  Future _pickImage(String type) async {
+    try {
+      final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
+      if (picked != null) {
+        setState(() {
+          if (type == 'profile') {
+            _profilePhoto = File(picked.path);
+          } else if (type == 'front') {
+            _licenseFront = File(picked.path);
+          } else if (type == 'back') {
+            _licenseBack = File(picked.path);
+          }
+        });
+      }
+    } catch (e) {
+      _showError("Failed to pick image: ${e.toString()}");
     }
   }
 
-  // ✅ NEW: Function to pick profile photo
-  Future<void> _pickProfilePhoto() async {
-    final picked = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 85,
-      maxWidth: 1024,
-      maxHeight: 1024,
-    );
-    if (picked != null) {
-      setState(() => profilePhoto = picked);
-    }
-  }
-// screens/driver/driver_profile_setup.dart - Add verification request
-Future<void> _submitForVerification() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-    
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/api/verification/request'),
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-    );
-
-    if (response.statusCode == 201) {
-      _showSuccessDialog();
-    } else {
-      final error = jsonDecode(response.body)['error'];
-      _showErrorDialog(error);
-    }
-  } catch (e) {
-    _showErrorDialog('Failed to submit verification request');
-  }
-}
-
-void _showSuccessDialog() {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      title: const Text('Profile Submitted!'),
-      content: const Text(
-        'Your profile has been submitted for admin verification. '
-        'You will be able to access jobs once approved.',
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
       ),
-      actions: [
-        ElevatedButton(
-          onPressed: () {
-            Navigator.of(context).pop();
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const DriverMainNavigation(),
-              ),
-            );
-          },
-          child: const Text('OK'),
-        ),
-      ],
-    ),
-  );
-}
-void _showErrorDialog(String errorMessage) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Error'),
-      content: Text(errorMessage),
-      actions: [
-        ElevatedButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('OK'),
-        ),
-      ],
-    ),
-  );
-}
-
-  // ✅ NEW: Function to show photo source options
-  Future<void> _showPhotoSourceOptions(bool isProfilePhoto) async {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('Camera'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final picked = await _picker.pickImage(
-                    source: ImageSource.camera,
-                    imageQuality: 85,
-                    maxWidth: 1024,
-                    maxHeight: 1024,
-                  );
-                  if (picked != null) {
-                    setState(() {
-                      if (isProfilePhoto) {
-                        profilePhoto = picked;
-                      } else {
-                        licensePhoto = picked;
-                      }
-                    });
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Gallery'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final picked = await _picker.pickImage(
-                    source: ImageSource.gallery,
-                    imageQuality: 85,
-                    maxWidth: 1024,
-                    maxHeight: 1024,
-                  );
-                  if (picked != null) {
-                    setState(() {
-                      if (isProfilePhoto) {
-                        profilePhoto = picked;
-                      } else {
-                        licensePhoto = picked;
-                      }
-                    });
-                  }
-                },
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
-  Future<void> _selectExpiryDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 365)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime(2100),
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+      ),
     );
-    if (picked != null && picked != licenseExpiryDate) {
-      setState(() => licenseExpiryDate = picked);
-    }
   }
 
   Future<void> _submitProfile() async {
-    if (!_formKey.currentState!.validate() || licensePhoto == null || licenseExpiryDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill all fields and upload license photo")),
-      );
-      return;
-    }
-    
-    _formKey.currentState!.save();
-    setState(() => _isLoading = true);
+  if (!_formKey.currentState!.validate()) return;
 
+  if (_profilePhoto == null || _licenseFront == null || _licenseBack == null) {
+    _showError("Profile photo and both license images are required");
+    return;
+  }
+
+  if (_licenseExpiryDate == null) {
+    _showError("Please select license expiry date");
+    return;
+  }
+
+  if (_selectedTruckTypes.isEmpty) {
+    _showError("Please select at least one truck type");
+    return;
+  }
+
+  setState(() {
+    _isSubmitting = true;
+    _errorMessage = null;
+  });
+
+  try {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
+    final token = prefs.getString('authToken') ?? widget.userData['token'];
 
     if (token == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("User not logged in")),
-      );
-      setState(() => _isLoading = false);
+      _showError("Authentication token missing. Please log in again.");
+      setState(() => _isSubmitting = false);
       return;
     }
 
-    try {
-      // Create multipart request for profile creation with photo
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse(ApiConfig.driverProfile),
-      );
+    final url = Uri.parse(ApiConfig.driverProfile);
+    var request = http.MultipartRequest('POST', url);
 
-      // Add headers
-      request.headers['Authorization'] = 'Bearer $token';
+    // ✅ Authorization Header
+    request.headers['Authorization'] = 'Bearer $token';
 
-      // Add form fields
-      request.fields['experience'] = experience;
-      request.fields['licenseType'] = licenseType;
-      request.fields['licenseNumber'] = licenseNumber;
-      request.fields['licenseExpiryDate'] = licenseExpiryDate!.toIso8601String();
-      request.fields['gender'] = gender;
-      request.fields['age'] = age;
-      request.fields['location'] = location;
-      request.fields['knownTruckTypes'] = jsonEncode(selectedTruckTypes);
+    // ✅ Add Form Fields
+    request.fields['licenseNumber'] = _licenseNumberController.text;
+    request.fields['experience'] = _experienceController.text;
+    request.fields['age'] = _ageController.text;
+    request.fields['gender'] = _gender ?? '';
+    request.fields['location'] = _locationController.text;
 
-      // Add license photo file with proper MIME type detection
-      if (licensePhoto != null) {
-        final file = File(licensePhoto!.path);
-        
-        // Get MIME type
-        final mimeType = lookupMimeType(file.path) ?? 'image/jpeg';
-        
-        // Generate proper filename with extension
-        final extension = mimeType.split('/').last;
-        final filename = 'license_${DateTime.now().millisecondsSinceEpoch}.$extension';
-        
-        print('📤 License file path: ${file.path}');
-        print('📤 License MIME type: $mimeType');
-        print('📤 License filename: $filename');
-        
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'licensePhoto',
-            file.path,
-            filename: filename,
-            contentType: MediaType.parse(mimeType),
-          ),
-        );
+    // ✅ Send Truck Types as comma-separated instead of JSON
+    request.fields['knownTruckTypes'] = _selectedTruckTypes.join(',');
+
+    // ✅ License Expiry Date
+    request.fields['licenseExpiryDate'] = _licenseExpiryDate!.toIso8601String();
+
+    // ✅ Attach Images
+    String? profileMime = lookupMimeType(_profilePhoto!.path);
+    request.files.add(await http.MultipartFile.fromPath(
+      'profilePhoto',
+      _profilePhoto!.path,
+      contentType: MediaType.parse(profileMime ?? 'image/jpeg'),
+    ));
+
+    String? frontMime = lookupMimeType(_licenseFront!.path);
+    request.files.add(await http.MultipartFile.fromPath(
+      'licensePhotoFront',
+      _licenseFront!.path,
+      contentType: MediaType.parse(frontMime ?? 'image/jpeg'),
+    ));
+
+    String? backMime = lookupMimeType(_licenseBack!.path);
+    request.files.add(await http.MultipartFile.fromPath(
+      'licensePhotoBack',
+      _licenseBack!.path,
+      contentType: MediaType.parse(backMime ?? 'image/jpeg'),
+    ));
+
+    // ✅ Send Request
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    // ✅ Handle Success & Errors Properly
+    if (response.statusCode == 201) {
+      try {
+        final jsonResponse = jsonDecode(response.body);
+        _showSuccess("Profile created successfully!");
+        Navigator.pop(context, true);
+      } catch (_) {
+        _showSuccess("Profile created successfully!");
+        Navigator.pop(context, true);
       }
-
-      // ✅ NEW: Add profile photo file
-      if (profilePhoto != null) {
-        final file = File(profilePhoto!.path);
-        
-        // Get MIME type
-        final mimeType = lookupMimeType(file.path) ?? 'image/jpeg';
-        
-        // Generate proper filename with extension
-        final extension = mimeType.split('/').last;
-        final filename = 'profile_${DateTime.now().millisecondsSinceEpoch}.$extension';
-        
-        print('📤 Profile file path: ${file.path}');
-        print('📤 Profile MIME type: $mimeType');
-        print('📤 Profile filename: $filename');
-        
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'profilePhoto',
-            file.path,
-            filename: filename,
-            contentType: MediaType.parse(mimeType),
-          ),
-        );
+    } else {
+      try {
+        final jsonResponse = jsonDecode(response.body);
+        _showError("Error: ${jsonResponse['error'] ?? 'Something went wrong'}");
+      } catch (_) {
+        _showError("Unexpected server response: ${response.body}");
       }
-
-      print('📤 Submitting profile with fields: ${request.fields}');
-      print('📤 Files attached: ${request.files.length}');
-
-      final response = await request.send();
-      final responseBody = await response.stream.bytesToString();
-      
-      print('📥 Response status: ${response.statusCode}');
-      print('📥 Response body: $responseBody');
-
-      if (response.statusCode == 201) {
-        final responseData = jsonDecode(responseBody);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(responseData['message'] ?? "Profile setup completed")),
-        );
-          await _submitForVerification();
-
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const DriverMainNavigation()),
-          );
-        }
-      } else {
-        final error = jsonDecode(responseBody);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error["error"] ?? "Something went wrong")),
-        );
-      }
-    } catch (e) {
-      print('❌ Error submitting profile: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: ${e.toString()}")),
-      );
     }
-
-    if (mounted) setState(() => _isLoading = false);
+  } catch (e) {
+    _showError("Failed to create profile: ${e.toString()}");
+  } finally {
+    setState(() => _isSubmitting = false);
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Complete Your Profile")),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+      appBar: AppBar(title: Text("Driver Profile Setup")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: ListView(
             children: [
-              const Text(
-                "Personal Information",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              // License Number
+              TextFormField(
+                controller: _licenseNumberController,
+                decoration: InputDecoration(labelText: "License Number *"),
+                validator: (v) => v!.isEmpty ? "Enter license number" : null,
               ),
-              const SizedBox(height: 16),
-              
-              // User info from Google
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundImage: widget.userData['photoUrl'] != null 
-                      ? NetworkImage(widget.userData['photoUrl'])
-                      : null,
-                  child: widget.userData['photoUrl'] == null 
-                      ? const Icon(Icons.person)
-                      : null,
-                ),
-                title: Text(widget.userData['name'] ?? 'No name'),
-                subtitle: Text(widget.userData['email'] ?? 'No email'),
+              SizedBox(height: 16),
+
+              // Experience
+              TextFormField(
+                controller: _experienceController,
+                decoration: InputDecoration(labelText: "Experience (years) *"),
+                keyboardType: TextInputType.number,
+                validator: (v) => v!.isEmpty ? "Enter years of experience" : null,
               ),
-              
-              const SizedBox(height: 16),
-              
-              // ✅ NEW: Profile Photo Section
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Profile Photo:",
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        "Upload a clear photo of yourself (optional)",
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton.icon(
-                        onPressed: () => _showPhotoSourceOptions(true),
-                        icon: const Icon(Icons.person_add_alt_1),
-                        label: Text(profilePhoto == null 
-                            ? "Add Profile Photo" 
-                            : "Change Photo"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                      if (profilePhoto != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "Profile photo:",
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey.shade300),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(profilePhoto!.path),
-                                    height: 120,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-              const Text(
-                "Driver Information",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              
+              SizedBox(height: 16),
+
               // Age
               TextFormField(
-                decoration: const InputDecoration(
-                  labelText: "Age",
-                  border: OutlineInputBorder(),
-                ),
+                controller: _ageController,
+                decoration: InputDecoration(labelText: "Age *"),
                 keyboardType: TextInputType.number,
-                validator: (val) => val == null || val.isEmpty ? "Required" : null,
-                onSaved: (val) => age = val ?? '',
+                validator: (v) => v!.isEmpty ? "Enter your age" : null,
               ),
-              const SizedBox(height: 16),
-              
+              SizedBox(height: 16),
+
               // Gender
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: "Gender",
-                  border: OutlineInputBorder(),
-                ),
+              DropdownButtonFormField(
+                value: _gender,
                 items: ["Male", "Female", "Other"]
                     .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                     .toList(),
-                validator: (val) => val == null || val.isEmpty ? "Select gender" : null,
-                onChanged: (val) => setState(() => gender = val ?? ''),
+                onChanged: (val) => setState(() => _gender = val as String?),
+                decoration: InputDecoration(labelText: "Gender *"),
+                validator: (v) => v == null ? "Select your gender" : null,
               ),
-              const SizedBox(height: 16),
-              
+              SizedBox(height: 16),
+
               // Location
               TextFormField(
-                decoration: const InputDecoration(
-                  labelText: "Location",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (val) => val == null || val.isEmpty ? "Required" : null,
-                onSaved: (val) => location = val ?? '',
+                controller: _locationController,
+                decoration: InputDecoration(labelText: "Location *"),
+                validator: (v) => v!.isEmpty ? "Enter your location" : null,
               ),
-              const SizedBox(height: 16),
-              
-              // Experience
-              TextFormField(
-                decoration: const InputDecoration(
-                  labelText: "Years of Experience",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (val) => val == null || val.isEmpty ? "Required" : null,
-                onSaved: (val) => experience = val ?? '',
-              ),
-              const SizedBox(height: 16),
-              
-              // License Type
-              TextFormField(
-                decoration: const InputDecoration(
-                  labelText: "License Type (e.g., Commercial, Heavy Vehicle)",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (val) => val == null || val.isEmpty ? "Required" : null,
-                onSaved: (val) => licenseType = val ?? '',
-              ),
-              const SizedBox(height: 16),
-              
-              // License Number
-              TextFormField(
-                decoration: const InputDecoration(
-                  labelText: "License Number",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (val) => val == null || val.isEmpty ? "Required" : null,
-                onSaved: (val) => licenseNumber = val ?? '',
-              ),
-              const SizedBox(height: 16),
-              
-              // License Expiry Date
-              Card(
-                child: ListTile(
-                  title: const Text("License Expiry Date"),
-                  subtitle: Text(licenseExpiryDate != null 
-                      ? DateFormat('yyyy-MM-dd').format(licenseExpiryDate!)
-                      : "Select date"),
-                  trailing: const Icon(Icons.calendar_today),
-                  onTap: () => _selectExpiryDate(context),
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Truck Types (Multi-select)
-              const Text(
-                "Truck Types You Can Operate:",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
+              SizedBox(height: 16),
+
+              // Truck types selection
+              Text("Truck Types You Can Drive *", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+              SizedBox(height: 8),
               Wrap(
                 spacing: 8,
-                runSpacing: 4,
-                children: truckTypes.map((type) {
-                  final isSelected = selectedTruckTypes.contains(type);
+                runSpacing: 8,
+                children: _availableTruckTypes.map((type) {
+                  final isSelected = _selectedTruckTypes.contains(type);
                   return FilterChip(
                     label: Text(type),
                     selected: isSelected,
                     onSelected: (selected) {
                       setState(() {
                         if (selected) {
-                          selectedTruckTypes.add(type);
+                          _selectedTruckTypes.add(type);
                         } else {
-                          selectedTruckTypes.remove(type);
+                          _selectedTruckTypes.remove(type);
                         }
                       });
                     },
                   );
                 }).toList(),
               ),
-              const SizedBox(height: 20),
-              
-              // License Photo
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "License Photo:",
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        "Please take a clear photo of your driving license",
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton.icon(
-                        onPressed: () => _showPhotoSourceOptions(false),
-                        icon: const Icon(Icons.camera_alt),
-                        label: Text(licensePhoto == null 
-                            ? "Take License Photo" 
-                            : "Retake Photo"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepOrange,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                      if (licensePhoto != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "License photo captured:",
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey.shade300),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(licensePhoto!.path),
-                                    height: 120,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
+              SizedBox(height: 16),
+
+              // License Expiry Date
+              ElevatedButton(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2050),
+                  );
+                  if (picked != null) {
+                    setState(() => _licenseExpiryDate = picked);
+                  }
+                },
+                child: Text(_licenseExpiryDate == null
+                    ? "Pick License Expiry Date *"
+                    : "Expiry: ${DateFormat('yyyy-MM-dd').format(_licenseExpiryDate!)}"),
+              ),
+              SizedBox(height: 16),
+
+              // Photos Section
+              Text("Upload Photos *", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              SizedBox(height: 10),
+
+              // Profile Photo
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    icon: Icon(Icons.person),
+                    label: Text("Profile Photo"),
+                    onPressed: () => _pickImage('profile'),
+                  ),
+                  SizedBox(width: 10),
+                  Text(_profilePhoto == null ? "Required" : "Selected")
+                ],
+              ),
+              SizedBox(height: 10),
+
+              // License Front
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    icon: Icon(Icons.credit_card),
+                    label: Text("License Front"),
+                    onPressed: () => _pickImage('front'),
+                  ),
+                  SizedBox(width: 10),
+                  Text(_licenseFront == null ? "Required" : "Selected")
+                ],
+              ),
+              SizedBox(height: 10),
+
+              // License Back
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    icon: Icon(Icons.credit_card_outlined),
+                    label: Text("License Back"),
+                    onPressed: () => _pickImage('back'),
+                  ),
+                  SizedBox(width: 10),
+                  Text(_licenseBack == null ? "Required" : "Selected")
+                ],
+              ),
+              SizedBox(height: 30),
+
+              // Submit Button
+              ElevatedButton(
+                onPressed: _isSubmitting ? null : _submitProfile,
+                child: _isSubmitting 
+                  ? CircularProgressIndicator(color: Colors.white)
+                  : Text("Submit Profile"),
+              ),
+
+              if (_errorMessage != null) 
+                Padding(
+                  padding: const EdgeInsets.only(top: 16.0),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(color: Colors.red),
+                    textAlign: TextAlign.center,
                   ),
                 ),
-              ),
-              
-              // Navigation Buttons
-              const SizedBox(height: 30),
-              _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : Row(
-                      children: [
-                        // Previous Button
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text("Previous"),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        // Complete Profile Button
-                        Expanded(
-                          flex: 2,
-                          child: ElevatedButton(
-                            onPressed: selectedTruckTypes.isNotEmpty ? _submitProfile : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepOrange,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            child: const Text("Complete Profile"),
-                          ),
-                        ),
-                      ],
-                    ),
             ],
           ),
         ),

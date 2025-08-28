@@ -6,6 +6,7 @@ import 'package:truckmate_app/api_config.dart';
 import 'specific_owner_posts.dart';
 import 'package:carousel_slider/carousel_slider.dart'; // Add this dependency for better image gallery
 import 'package:animate_do/animate_do.dart'; // Add this for animations (optional, or use built-in animations)
+import 'package:truckmate_app/utils/image_utils.dart';
 
 // Enhanced Theme Colors
 const primaryColor = Color(0xFF1976D2); // Blue for logistics theme
@@ -40,43 +41,51 @@ class _JobDetailPageState extends State<JobDetailPage> {
   }
 
   void _showFullScreenImage(int initialIndex) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(0),
-          child: Stack(
-            children: [
-              PageView.builder(
-                itemCount: widget.job['lorryPhotos'].length,
-                controller: PageController(initialPage: initialIndex),
-                itemBuilder: (context, index) {
-                  return InteractiveViewer(
-                    panEnabled: true,
-                    minScale: 0.5,
-                    maxScale: 3.0,
-                    child: Image.network(
-                      widget.job['lorryPhotos'][index],
-                      fit: BoxFit.contain,
-                    ),
-                  );
-                },
+  final List? photosBase64 = widget.job['lorryPhotosBase64'] as List?;
+  
+  showDialog(
+    context: context,
+    builder: (context) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(0),
+        child: Stack(
+          children: [
+            PageView.builder(
+              itemCount: photosBase64?.length ?? 0,
+              controller: PageController(initialPage: initialIndex),
+              itemBuilder: (context, index) {
+                final bytes = ImageUtils.decodeBase64Image(photosBase64![index] as String?);
+                
+                return InteractiveViewer(
+                  panEnabled: true,
+                  minScale: 0.5,
+                  maxScale: 3.0,
+                  child: bytes != null
+                    ? Image.memory(bytes, fit: BoxFit.contain)
+                    : Container(
+                        color: Colors.grey[300],
+                        child: const Center(
+                          child: Text('Failed to load image', style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                );
+              },
+            ),
+            Positioned(
+              top: 40,
+              right: 20,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.of(context).pop(),
               ),
-              Positioned(
-                top: 40,
-                right: 20,
-                child: IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
   Future<void> _fetchJobDetails() async {
     try {
@@ -441,10 +450,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
   }
 
   Widget _buildImageGallery() {
-    if (widget.job['lorryPhotos'] == null || widget.job['lorryPhotos'].isEmpty) {
-      return Container();
-    }
-
+  if (widget.job['lorryPhotos'] != null && widget.job['lorryPhotos'].isNotEmpty) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -484,6 +490,15 @@ class _JobDetailPageState extends State<JobDetailPage> {
                     widget.job['lorryPhotos'][index],
                     fit: BoxFit.cover,
                     width: double.infinity,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    },
                     errorBuilder: (context, error, stackTrace) => Container(
                       color: Colors.grey[200],
                       child: const Column(
@@ -516,6 +531,9 @@ class _JobDetailPageState extends State<JobDetailPage> {
       ),
     );
   }
+
+  return Container();
+}
 
   @override
   Widget build(BuildContext context) {

@@ -1,6 +1,6 @@
 class ApiConfig {
   // Base URL configuration
-  static const String baseUrl = 'https://truckmate-servermvp.onrender.com';
+  static const String baseUrl = "http://192.168.85.244:5000";
   // Health check endpoint
   static const String healthCheck = '$baseUrl/health';
   
@@ -10,8 +10,11 @@ class ApiConfig {
   
   // Profile endpoints
   static const String ownerProfile = '$baseUrl/api/profile/owner';
-  static const String driverProfile = '$baseUrl/api/profile/driver';
+  
   static const String updateUser = '$baseUrl/api/profile/user';
+   static const String driverProfile = '$baseUrl/api/profile/driver';
+  static const String driverProfileCompletion = '$baseUrl/api/profile/driver/check-completion';
+  static const String availableDrivers = '$baseUrl/api/profile/driver/available';
   
   // Profile endpoints for specific owner
   static String getOwnerProfileById(String ownerId) => '$ownerProfile/$ownerId';
@@ -24,13 +27,19 @@ class ApiConfig {
   static const String driverJobs = '$baseUrl/api/jobs/driver';
   static const String jobFilterOptions = '$driverJobs/filter-options';
   static const String updateAvailability = '$baseUrl/api/profile/availability';
+  static String updateJob(String jobId) => '$jobs/$jobId';
+  static String deleteJob(String jobId) => '$jobs/$jobId';
+  static String uploadJobPhotos(String jobId) => '$jobs/$jobId/photos';
 
-  // UPDATED: Like endpoints to match backend routes
-  static const String likes = '$baseUrl/api/likes/job';  // Changed from just /likes
+  // NEW: Job image upload endpoint
+  static const String jobImageUpload = '$baseUrl/api/jobs/upload-images';
+
+  // Like endpoints
+  static const String likes = '$baseUrl/api/likes/job';
   static String getLikesForItem(String itemId) => '$likes?likedItemId=$itemId';
   static String deleteLike(String likeId) => '$likes/$likeId';
-  static const String checkLike = '$baseUrl/api/likes/job/check';  // Updated path
-  static const String userLikes = '$baseUrl/api/likes/job/user';   // Updated path
+  static const String checkLike = '$baseUrl/api/likes/job/check';
+  static const String userLikes = '$baseUrl/api/likes/job/user';
   
   // Driver like endpoints
   static const String likeDriver = '$baseUrl/api/likes/driver';
@@ -44,7 +53,8 @@ class ApiConfig {
   
   // Upload endpoints
   static const String uploads = '$baseUrl/api/uploads';
-   // Verification endpoints
+  
+  // Verification endpoints
   static String get verificationStatus => '$baseUrl/api/verification/status';
   static String get verificationCheckAccess => '$baseUrl/api/verification/check-access';
   static String get verificationResubmit => '$baseUrl/api/verification/resubmit';
@@ -83,7 +93,6 @@ class ApiConfig {
   static Map<String, String> uploadHeaders(String token) {
     return {
       "Authorization": "Bearer $token",
-      // Content-Type will be set automatically for multipart requests
     };
   }
 }

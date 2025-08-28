@@ -7,23 +7,21 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mime/mime.dart';
-
+import 'package:truckmate_app/utils/image_utils.dart';
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/driver_main_navigation.dart';
 import 'driver_profile_page.dart';
 
 class EditDriverProfilePage extends StatefulWidget {
-  final Map<String, dynamic> profileData;
-  final Map<String, dynamic> userData;
-
+  final Map profileData;
+  final Map userData;
   const EditDriverProfilePage({
     super.key,
     required this.profileData,
     required this.userData,
   });
-
   @override
-  State<EditDriverProfilePage> createState() => _EditDriverProfilePageState();
+  State createState() => _EditDriverProfilePageState();
 }
 
 class _EditDriverProfilePageState extends State<EditDriverProfilePage>
@@ -33,9 +31,9 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
   String? _errorMessage;
   bool _isSubmitting = false;
   late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
+ late Animation<double> _fadeAnimation;
 
-  // Color scheme
+  // Color scheme definitions
   static const Color primaryColor = Color(0xFF6366F1); // Indigo
   static const Color secondaryColor = Color(0xFF10B981); // Emerald
   static const Color accentColor = Color(0xFFF59E0B); // Amber
@@ -48,26 +46,27 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     end: Alignment.bottomRight,
   );
 
-  // Form controllers
+  // Controllers for form fields
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
   final TextEditingController _experienceController = TextEditingController();
-  final TextEditingController _licenseTypeController = TextEditingController();
   final TextEditingController _licenseNumberController = TextEditingController();
   final TextEditingController _licenseExpiryController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
 
-  // Photo handling
-  File? _licensePhotoFile;
+  // Photo files and URLs (support profile, license front & back)
+  File? _licensePhotoFrontFile;
+  File? _licensePhotoBackFile;
   File? _profilePhotoFile;
-  String? _licensePhotoUrl;
+  String? _licensePhotoFrontUrl;
+  String? _licensePhotoBackUrl;
   String? _profilePhotoUrl;
   final ImagePicker _picker = ImagePicker();
 
-  // Multiple selection for truck types
-  List<String> _knownTruckTypes = [];
-  final List<String> _availableTruckTypes = [
+  // Truck types
+  List _knownTruckTypes = [];
+  final List _availableTruckTypes = [
     "Body Vehicle",
     "Trailer",
     "Tipper",
@@ -79,22 +78,15 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     "Bulker"
   ];
 
-  // Gender selection
+  // Gender
   String? _selectedGender;
 
-  // Allowed image types
-  final List<String> _allowedImageTypes = [
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/gif'
+  // Allowed image types/extensions
+  final List _allowedImageTypes = [
+    'image/jpeg', 'image/jpg', 'image/png', 'image/gif'
   ];
-
-  final List<String> _allowedImageExtensions = [
-    '.jpg',
-    '.jpeg',
-    '.png',
-    '.gif'
+  final List _allowedImageExtensions = [
+    '.jpg', '.jpeg', '.png', '.gif'
   ];
 
   @override
@@ -104,135 +96,95 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
+    _fadeAnimation = Tween(begin: 0.0, end: 1.0)
+        .animate(CurvedAnimation(parent: _animationController, curve: Curves.easeInOut));
     _animationController.forward();
     _initializeForm();
   }
 
   void _initializeForm() {
-    // User data
+    // Init user data, profile data into controllers and fields
     _nameController.text = widget.userData['name'] ?? '';
     _phoneController.text = widget.userData['phone'] ?? '';
-
-    // Profile data
     _ageController.text = widget.profileData['age']?.toString() ?? '';
     _experienceController.text = widget.profileData['experience'] ?? '';
-    _licenseTypeController.text = widget.profileData['licenseType'] ?? '';
     _licenseNumberController.text = widget.profileData['licenseNumber'] ?? '';
     _locationController.text = widget.profileData['location'] ?? '';
     _selectedGender = widget.profileData['gender'] ?? '';
-
-    // License expiry date
     if (widget.profileData['licenseExpiryDate'] != null) {
-      final expiryDate = DateTime.parse(widget.profileData['licenseExpiryDate']);
-      _licenseExpiryController.text = DateFormat('yyyy-MM-dd').format(expiryDate);
+      final expiry = DateTime.parse(widget.profileData['licenseExpiryDate']);
+      _licenseExpiryController.text = DateFormat('yyyy-MM-dd').format(expiry);
     }
-
-    // Truck types
-    if (widget.profileData['knownTruckTypes'] != null) {
-      _knownTruckTypes = List<String>.from(widget.profileData['knownTruckTypes']);
-      for (var type in _availableTruckTypes) {
-        if (!_knownTruckTypes.contains(type)) {
-          _knownTruckTypes.add(type);
-        }
-      }
-    } else {
-      _knownTruckTypes = List.from(_availableTruckTypes);
-    }
-
-    // Photos
-    _licensePhotoUrl = widget.profileData['licensePhoto'];
+    _knownTruckTypes = List.from(widget.profileData['knownTruckTypes'] ?? []);
+    _licensePhotoFrontUrl = widget.profileData['licensePhotoFront'];
+    _licensePhotoBackUrl = widget.profileData['licensePhotoBack'];
     _profilePhotoUrl = widget.profileData['profilePhoto'];
   }
 
   bool _isValidImageFile(File file) {
-    final extension = file.path.toLowerCase().split('.').last;
-    if (!_allowedImageExtensions.any((ext) => ext.substring(1) == extension)) {
-      return false;
-    }
-
+    final ext = file.path.toLowerCase().split('.').last;
+    if (!_allowedImageExtensions.any((e) => e.substring(1) == ext)) return false;
     final mimeType = lookupMimeType(file.path);
-    if (mimeType == null || !_allowedImageTypes.contains(mimeType)) {
-      return false;
-    }
-
+    if (mimeType == null || !_allowedImageTypes.contains(mimeType)) return false;
     return true;
   }
 
-  Future<void> _pickImage(bool isLicensePhoto) async {
+  Future _pickImage({required String field}) async {
     try {
-      final source = await _showImageSourceDialog();
+      final ImageSource? source = await _showImageSourceDialog();
       if (source == null) return;
-
       final pickedFile = await _picker.pickImage(
         source: source,
         imageQuality: 80,
         maxWidth: 1024,
         maxHeight: 1024,
       );
-
-      if (pickedFile != null) {
-        final file = File(pickedFile.path);
-        
-        if (!_isValidImageFile(file)) {
-          _showError('Please select a valid image file (JPEG, JPG, PNG, or GIF)');
-          return;
-        }
-
-        final fileSize = await file.length();
-        if (fileSize > 5 * 1024 * 1024) {
-          _showError('Image file size must be less than 5MB');
-          return;
-        }
-
-        setState(() {
-          if (isLicensePhoto) {
-            _licensePhotoFile = file;
-          } else {
-            _profilePhotoFile = file;
-          }
-        });
+      if (pickedFile == null) return;
+      final file = File(pickedFile.path);
+      if (!_isValidImageFile(file)) {
+        _showError('Please select a valid image file (JPEG, JPG, PNG, GIF)');
+        return;
       }
+      final size = await file.length();
+      if (size > 5 * 1024 * 1024) {
+        _showError('Image file size must be less than 5MB');
+        return;
+      }
+      setState(() {
+        if (field == 'profile') _profilePhotoFile = file;
+        if (field == 'licenseFront') _licensePhotoFrontFile = file;
+        if (field == 'licenseBack') _licensePhotoBackFile = file;
+      });
     } catch (e) {
       _showError('Failed to pick image: ${e.toString()}');
     }
   }
 
-  Future<ImageSource?> _showImageSourceDialog() async {
+  Future<ImageSource?> _showImageSourceDialog() {
     return showDialog<ImageSource>(
       context: context,
-      builder: (BuildContext context) {
+      builder: (context) {
         return AlertDialog(
           backgroundColor: cardColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text(
-            'Select Image Source',
-            style: TextStyle(
-              color: primaryColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 20,
-            ),
-          ),
+          title: Text('Select Image Source',
+              style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 20)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildImageSourceOption(
-                icon: Icons.photo_library,
-                title: 'Gallery',
-                subtitle: 'Choose from gallery',
-                color: secondaryColor,
-                onTap: () => Navigator.pop(context, ImageSource.gallery),
-              ),
-              const SizedBox(height: 16),
+                  icon: Icons.photo_library,
+                  title: 'Gallery',
+                  subtitle: 'Choose from gallery',
+                  color: secondaryColor,
+                  onTap: () => Navigator.pop(context, ImageSource.gallery)),
+              SizedBox(height: 16),
               _buildImageSourceOption(
-                icon: Icons.photo_camera,
-                title: 'Camera',
-                subtitle: 'Take a new photo',
-                color: accentColor,
-                onTap: () => Navigator.pop(context, ImageSource.camera),
-              ),
+                  icon: Icons.photo_camera,
+                  title: 'Camera',
+                  subtitle: 'Take a new photo',
+                  color: accentColor,
+                  onTap: () => Navigator.pop(context, ImageSource.camera)),
             ],
           ),
         );
@@ -261,30 +213,15 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
           children: [
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(10),
-              ),
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
               child: Icon(icon, color: Colors.white, size: 24),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
               ],
             ),
           ],
@@ -293,37 +230,38 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     );
   }
 
-  Future<void> _removePhoto(bool isLicensePhoto) async {
+  Future _removePhoto(String field) async {
     setState(() {
-      if (isLicensePhoto) {
-        _licensePhotoFile = null;
-        _licensePhotoUrl = null;
-      } else {
+      if (field == 'profile') {
         _profilePhotoFile = null;
         _profilePhotoUrl = null;
+      } else if (field == 'licenseFront') {
+        _licensePhotoFrontFile = null;
+        _licensePhotoFrontUrl = null;
+      } else if (field == 'licenseBack') {
+        _licensePhotoBackFile = null;
+        _licensePhotoBackUrl = null;
       }
     });
   }
 
-  Future<void> _selectDate(BuildContext context) async {
+  Future _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime(2100),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: primaryColor,
-              onPrimary: Colors.white,
-              surface: cardColor,
-              onSurface: Colors.black87,
-            ),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.light(
+            primary: primaryColor,
+            onPrimary: Colors.white,
+            surface: cardColor,
+            onSurface: Colors.black87,
           ),
-          child: child!,
-        );
-      },
+        ),
+        child: child!,
+      ),
     );
     if (picked != null) {
       setState(() {
@@ -337,15 +275,15 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 8),
+            Icon(Icons.error_outline, color: Colors.white),
+            SizedBox(width: 8),
             Expanded(child: Text(message)),
           ],
         ),
         backgroundColor: errorColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 4),
+        duration: Duration(seconds: 4),
       ),
     );
   }
@@ -355,30 +293,27 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.check_circle_outline, color: Colors.white),
-            const SizedBox(width: 8),
+            Icon(Icons.check_circle_outline, color: Colors.white),
+            SizedBox(width: 8),
             Expanded(child: Text(message)),
           ],
         ),
         backgroundColor: secondaryColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 3),
+        duration: Duration(seconds: 3),
       ),
     );
   }
 
-  Future<void> _submitForm() async {
+  Future _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
     });
-
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
-
     if (token == null) {
       setState(() {
         _isSubmitting = false;
@@ -386,34 +321,24 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
       });
       return;
     }
-
     try {
-      if (_nameController.text != widget.userData['name'] || 
-          _phoneController.text != widget.userData['phone']) {
+      if (_nameController.text != widget.userData['name'] || _phoneController.text != widget.userData['phone']) {
         await _updateUserInfo(token);
       }
-
       await _updateDriverProfile(token);
-
       if (mounted) {
         _showSuccess('Profile updated successfully!');
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const DriverMainNavigation(),
-          ),
-        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const DriverMainNavigation()));
       }
     } catch (e) {
       setState(() {
         _isSubmitting = false;
         _errorMessage = "Failed to update profile: ${e.toString()}";
       });
-      debugPrint("Profile update error: $e");
     }
   }
 
-  Future<void> _updateUserInfo(String token) async {
+  Future _updateUserInfo(String token) async {
     final response = await http.patch(
       Uri.parse(ApiConfig.updateUser),
       headers: {
@@ -425,21 +350,15 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
         "phone": _phoneController.text.trim(),
       }),
     );
-
     if (response.statusCode != 200) {
       throw Exception("Failed to update user info: ${response.statusCode}");
     }
   }
 
-  Future<void> _updateDriverProfile(String token) async {
-    final request = http.MultipartRequest(
-      'PATCH',
-      Uri.parse(ApiConfig.driverProfile),
-    );
+  Future _updateDriverProfile(String token) async {
+    var request = http.MultipartRequest('PATCH', Uri.parse(ApiConfig.driverProfile));
     request.headers['Authorization'] = 'Bearer $token';
-
     request.fields['experience'] = _experienceController.text.trim();
-    request.fields['licenseType'] = _licenseTypeController.text.trim();
     request.fields['licenseNumber'] = _licenseNumberController.text.trim();
     request.fields['licenseExpiryDate'] = _licenseExpiryController.text;
     request.fields['gender'] = _selectedGender ?? '';
@@ -447,38 +366,42 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     request.fields['location'] = _locationController.text.trim();
     request.fields['knownTruckTypes'] = jsonEncode(_knownTruckTypes);
 
-    if (_licensePhotoFile != null) {
-      final mimeType = lookupMimeType(_licensePhotoFile!.path) ?? 'image/jpeg';
+    // Add photos if selected
+    if (_licensePhotoFrontFile != null) {
+      String? mimeType = lookupMimeType(_licensePhotoFrontFile!.path);
       request.files.add(await http.MultipartFile.fromPath(
-        'licensePhoto',
-        _licensePhotoFile!.path,
-        contentType: http_parser.MediaType.parse(mimeType),
+        'licensePhotoFront',
+        _licensePhotoFrontFile!.path,
+        contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
       ));
     }
-
+    if (_licensePhotoBackFile != null) {
+      String? mimeType = lookupMimeType(_licensePhotoBackFile!.path);
+      request.files.add(await http.MultipartFile.fromPath(
+        'licensePhotoBack',
+        _licensePhotoBackFile!.path,
+        contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
+      ));
+    }
     if (_profilePhotoFile != null) {
-      final mimeType = lookupMimeType(_profilePhotoFile!.path) ?? 'image/jpeg';
+      String? mimeType = lookupMimeType(_profilePhotoFile!.path);
       request.files.add(await http.MultipartFile.fromPath(
         'profilePhoto',
         _profilePhotoFile!.path,
-        contentType: http_parser.MediaType.parse(mimeType),
+        contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
       ));
     }
 
     final response = await request.send();
-    final responseBody = await response.stream.bytesToString();
-
+    final responseData = await response.stream.bytesToString();
     if (response.statusCode != 200) {
-      final errorData = jsonDecode(responseBody);
+      final errorData = jsonDecode(responseData);
       throw Exception(errorData['error'] ?? 'Failed to update profile');
     }
   }
 
-  Widget _buildPhotoField({
-    required String label,
-    required bool isLicensePhoto,
-    String? existingPhotoUrl,
-  }) {
+  Widget _buildPhotoField({required String label, required bool isLicensePhoto, String? existingPhotoUrl}) {
+    File? file = isLicensePhoto ? _licensePhotoFrontFile ?? _licensePhotoBackFile : _profilePhotoFile;
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       padding: const EdgeInsets.all(20),
@@ -486,11 +409,7 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
         color: cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
@@ -500,53 +419,27 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  isLicensePhoto ? Icons.credit_card : Icons.account_circle,
-                  color: primaryColor,
-                  size: 20,
-                ),
+                decoration: BoxDecoration(color: primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                child: Icon(isLicensePhoto ? Icons.credit_card : Icons.account_circle, color: primaryColor, size: 20),
               ),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Colors.black87,
-                ),
-              ),
+              SizedBox(width: 12),
+              Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Row(
             children: [
-              // Photo display
               Container(
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  gradient: LinearGradient(
-                    colors: [
-                      primaryColor.withOpacity(0.1),
-                      secondaryColor.withOpacity(0.1),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: primaryColor.withOpacity(0.3),
-                    width: 2,
-                  ),
+                  gradient: LinearGradient(colors: [primaryColor.withOpacity(0.1), secondaryColor.withOpacity(0.1)]),
+                  border: Border.all(color: primaryColor.withOpacity(0.3), width: 2),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: _buildPhotoWidget(isLicensePhoto, existingPhotoUrl),
-                ),
+                child: ClipRRect(borderRadius: BorderRadius.circular(10), child: _buildPhotoWidget(isLicensePhoto, existingPhotoUrl)),
               ),
-              const SizedBox(width: 20),
+              SizedBox(width: 20),
               Expanded(
                 child: Column(
                   children: [
@@ -554,41 +447,29 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
                       icon: Icons.cloud_upload_outlined,
                       label: 'Upload Photo',
                       color: primaryColor,
-                      onPressed: () => _pickImage(isLicensePhoto),
+                      onPressed: () => _pickImage(field: isLicensePhoto ? 'licenseFront' : 'profile'),
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12),
                     _buildPhotoButton(
                       icon: Icons.delete_outline,
                       label: 'Remove Photo',
                       color: errorColor,
-                      onPressed: () => _removePhoto(isLicensePhoto),
+                      onPressed: () => _removePhoto(isLicensePhoto ? 'licenseFront' : 'profile'),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
+            decoration: BoxDecoration(color: accentColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
             child: Row(
               children: [
                 Icon(Icons.info_outline, color: accentColor, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Supported: JPEG, JPG, PNG, GIF (Max: 5MB)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
+                SizedBox(width: 8),
+                Expanded(child: Text('Supported: JPEG, JPG, PNG, GIF (Max: 5MB)', style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w500))),
               ],
             ),
           ),
@@ -598,76 +479,46 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
   }
 
   Widget _buildPhotoWidget(bool isLicensePhoto, String? existingPhotoUrl) {
-    if (isLicensePhoto ? _licensePhotoFile != null : _profilePhotoFile != null) {
-      return Image.file(
-        isLicensePhoto ? _licensePhotoFile! : _profilePhotoFile!,
-        fit: BoxFit.cover,
-      );
+    if (isLicensePhoto ? (_licensePhotoFrontFile != null || _licensePhotoBackFile != null) : _profilePhotoFile != null) {
+      return Image.file(isLicensePhoto ? (_licensePhotoFrontFile ?? _licensePhotoBackFile)! : _profilePhotoFile!, fit: BoxFit.cover);
     } else if (existingPhotoUrl != null && existingPhotoUrl.isNotEmpty) {
-      return Image.network(
-        existingPhotoUrl,
-        fit: BoxFit.cover,
-        loadingBuilder: (context, child, loadingProgress) {
-          if (loadingProgress == null) return child;
-          return Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-              strokeWidth: 2,
-            ),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) {
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.broken_image_outlined, color: Colors.grey[400], size: 32),
-              const SizedBox(height: 4),
-              Text(
-                'Failed to load',
-                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-              ),
-            ],
-          );
-        },
-      );
-    } else {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            isLicensePhoto ? Icons.credit_card : Icons.account_circle,
-            size: 40,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'No Photo',
-            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-          ),
-        ],
-      );
+      if (existingPhotoUrl.startsWith('http')) {
+        return Image.network(
+          existingPhotoUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _buildPlaceholderIcon(isLicensePhoto),
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Center(child: CircularProgressIndicator(value: loadingProgress.expectedTotalBytes != null ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! : null));
+          },
+        );
+      } else if (existingPhotoUrl.startsWith('data:image')) {
+        final bytes = ImageUtils.decodeBase64Image(existingPhotoUrl);
+        if (bytes != null) return Image.memory(bytes, fit: BoxFit.cover);
+      }
     }
+    return _buildPlaceholderIcon(isLicensePhoto);
   }
 
-  Widget _buildPhotoButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
+  Widget _buildPlaceholderIcon(bool isLicensePhoto) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(isLicensePhoto ? Icons.credit_card : Icons.account_circle, size: 40, color: Colors.grey[400]),
+        SizedBox(height: 8),
+        Text('No Photo', style: TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+
+  Widget _buildPhotoButton({required IconData icon, required String label, required Color color, required VoidCallback onPressed}) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
         onPressed: onPressed,
         icon: Icon(icon, size: 18),
         label: Text(label, style: const TextStyle(fontSize: 13)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
+        style: ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
       ),
     );
   }
@@ -676,45 +527,15 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: secondaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.local_shipping,
-                  color: secondaryColor,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Truck Types You Can Drive',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
+          Row(children: [
+            Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: secondaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.local_shipping, color: secondaryColor, size: 20)),
+            SizedBox(width: 12),
+            const Text('Truck Types You Can Drive', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+          ]),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
@@ -722,32 +543,18 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
             children: _availableTruckTypes.map((type) {
               final isSelected = _knownTruckTypes.contains(type);
               return FilterChip(
-                label: Text(
-                  type,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : primaryColor,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                label: Text(type, style: TextStyle(color: isSelected ? Colors.white : primaryColor, fontWeight: FontWeight.w500)),
                 selected: isSelected,
                 onSelected: (selected) {
                   setState(() {
-                    if (selected) {
-                      _knownTruckTypes.add(type);
-                    } else {
-                      _knownTruckTypes.remove(type);
-                    }
+                    if (selected) _knownTruckTypes.add(type);
+                    else _knownTruckTypes.remove(type);
                   });
                 },
                 selectedColor: primaryColor,
                 checkmarkColor: Colors.white,
                 backgroundColor: primaryColor.withOpacity(0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                    color: isSelected ? primaryColor : primaryColor.withOpacity(0.3),
-                  ),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: isSelected ? primaryColor : primaryColor.withOpacity(0.3))),
               );
             }).toList(),
           ),
@@ -756,54 +563,23 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     );
   }
 
-  Widget _buildSectionCard({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-    Color? iconColor,
-  }) {
+  Widget _buildSectionCard({required String title, required IconData icon, required List<Widget> children, Color? iconColor}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: (iconColor ?? primaryColor).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  icon,
-                  color: iconColor ?? primaryColor,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: (iconColor ?? primaryColor).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+              child: Icon(icon, color: iconColor ?? primaryColor, size: 20),
+            ),
+            SizedBox(width: 12),
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+          ]),
           const SizedBox(height: 20),
           ...children,
         ],
@@ -831,22 +607,10 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
           suffixIcon: suffixIcon,
           filled: true,
           fillColor: surfaceColor,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: primaryColor, width: 2),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: errorColor, width: 2),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: errorColor, width: 2),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2)),
+          errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: errorColor, width: 2)),
+          focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: errorColor, width: 2)),
           labelStyle: TextStyle(color: Colors.grey[600]),
           floatingLabelStyle: const TextStyle(color: primaryColor),
         ),
@@ -875,14 +639,8 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
           prefixIcon: Icon(icon, color: primaryColor),
           filled: true,
           fillColor: surfaceColor,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: primaryColor, width: 2),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2)),
           labelStyle: TextStyle(color: Colors.grey[600]),
           floatingLabelStyle: const TextStyle(color: primaryColor),
         ),
@@ -905,9 +663,7 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
-                decoration: const BoxDecoration(
-                  gradient: primaryGradient,
-                ),
+                decoration: const BoxDecoration(gradient: primaryGradient),
                 child: SafeArea(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -915,22 +671,9 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        const Text(
-                          'Edit Profile',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        const Text('Edit Profile', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
-                        Text(
-                          'Update your driver information',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 16,
-                          ),
-                        ),
+                        Text('Update your driver information', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 16)),
                       ],
                     ),
                   ),
@@ -945,24 +688,15 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
                 margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
                 child: ElevatedButton.icon(
                   onPressed: _isSubmitting ? null : _submitForm,
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.save, size: 18),
+                  icon: _isSubmitting 
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
+                    : const Icon(Icons.save, size: 18),
                   label: Text(_isSubmitting ? 'Saving...' : 'Save'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: primaryColor,
                     elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   ),
                 ),
               ),
@@ -972,11 +706,7 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
             child: _isLoading
                 ? Container(
                     height: MediaQuery.of(context).size.height * 0.7,
-                    child: const Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                      ),
-                    ),
+                    child: const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(primaryColor))),
                   )
                 : FadeTransition(
                     opacity: _fadeAnimation,
@@ -999,51 +729,24 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
                                   children: [
                                     Icon(Icons.error_outline, color: errorColor),
                                     const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        _errorMessage!,
-                                        style: TextStyle(color: errorColor),
-                                      ),
-                                    ),
+                                    Expanded(child: Text(_errorMessage!, style: TextStyle(color: errorColor))),
                                   ],
                                 ),
                               ),
-
-                            // Profile Photo Section
-                            _buildPhotoField(
-                              label: 'Profile Photo',
-                              isLicensePhoto: false,
-                              existingPhotoUrl: _profilePhotoUrl,
-                            ),
-
-                            // Personal Information Section
+                            _buildPhotoField(label: 'Profile Photo', isLicensePhoto: false, existingPhotoUrl: _profilePhotoUrl),
+                            _buildPhotoField(label: 'License Photo (Front)', isLicensePhoto: true, existingPhotoUrl: _licensePhotoFrontUrl),
+                            _buildPhotoField(label: 'License Photo (Back)', isLicensePhoto: true, existingPhotoUrl: _licensePhotoBackUrl),
                             _buildSectionCard(
                               title: 'Personal Information',
                               icon: Icons.person_outline,
                               children: [
-                                _buildCustomTextField(
-                                  controller: _nameController,
-                                  label: 'Full Name',
-                                  icon: Icons.person,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your name';
-                                    }
-                                    return null;
-                                  },
+                                _buildCustomTextField(controller: _nameController, label: 'Full Name', icon: Icons.person,
+                                  validator: (value) => value == null || value.isEmpty ? 'Please enter your name' : null,
                                 ),
-                                _buildCustomTextField(
-                                  controller: _phoneController,
-                                  label: 'Phone Number',
-                                  icon: Icons.phone,
-                                  keyboardType: TextInputType.phone,
+                                _buildCustomTextField(controller: _phoneController, label: 'Phone Number', icon: Icons.phone, keyboardType: TextInputType.phone,
                                   validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your phone number';
-                                    }
-                                    if (!RegExp(r'^[+]?[\d\s\-\(\)]{10,}$').hasMatch(value)) {
-                                      return 'Please enter a valid phone number';
-                                    }
+                                    if (value == null || value.isEmpty) return 'Please enter your phone number';
+                                    if (!RegExp(r'^[+]?[\d\s\-\(\)]{10,}$').hasMatch(value)) return 'Please enter a valid phone number';
                                     return null;
                                   },
                                 ),
@@ -1056,117 +759,41 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
                                     DropdownMenuItem(value: 'Female', child: Text('Female')),
                                     DropdownMenuItem(value: 'Other', child: Text('Other')),
                                   ],
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _selectedGender = value;
-                                    });
-                                  },
+                                  onChanged: (value) => setState(() => _selectedGender = value),
+                                  validator: (value) => value == null || value.isEmpty ? 'Please select your gender' : null,
+                                ),
+                                _buildCustomTextField(controller: _ageController, label: 'Age', icon: Icons.cake, keyboardType: TextInputType.number,
                                   validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please select your gender';
-                                    }
+                                    if (value == null || value.isEmpty) return 'Please enter your age';
+                                    if (int.tryParse(value) == null) return 'Please enter a valid number';
                                     return null;
                                   },
                                 ),
-                                _buildCustomTextField(
-                                  controller: _ageController,
-                                  label: 'Age',
-                                  icon: Icons.cake,
-                                  keyboardType: TextInputType.number,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your age';
-                                    }
-                                    if (int.tryParse(value) == null) {
-                                      return 'Please enter a valid number';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                _buildCustomTextField(
-                                  controller: _locationController,
-                                  label: 'Location',
-                                  icon: Icons.location_on,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your location';
-                                    }
-                                    return null;
-                                  },
+                                _buildCustomTextField(controller: _locationController, label: 'Location', icon: Icons.location_on,
+                                  validator: (value) => value == null || value.isEmpty ? 'Please enter your location' : null,
                                 ),
                               ],
                             ),
-
-                            // Driver Information Section
                             _buildSectionCard(
                               title: 'Driver Information',
                               icon: Icons.drive_eta,
                               iconColor: secondaryColor,
                               children: [
-                                _buildCustomTextField(
-                                  controller: _experienceController,
-                                  label: 'Years of Experience',
-                                  icon: Icons.work_outline,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your experience';
-                                    }
-                                    return null;
-                                  },
+                                _buildCustomTextField(controller: _experienceController, label: 'Years of Experience', icon: Icons.work_outline,
+                                  validator: (value) => value == null || value.isEmpty ? 'Please enter your experience' : null,
                                 ),
-                                _buildCustomTextField(
-                                  controller: _licenseTypeController,
-                                  label: 'License Type',
-                                  icon: Icons.credit_card,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your license type';
-                                    }
-                                    return null;
-                                  },
+                                _buildCustomTextField(controller: _licenseNumberController, label: 'License Number', icon: Icons.confirmation_number,
+                                  validator: (value) => value == null || value.isEmpty ? 'Please enter your license number' : null,
                                 ),
-                                _buildCustomTextField(
-                                  controller: _licenseNumberController,
-                                  label: 'License Number',
-                                  icon: Icons.confirmation_number,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your license number';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                _buildCustomTextField(
-                                  controller: _licenseExpiryController,
-                                  label: 'License Expiry Date',
-                                  icon: Icons.calendar_today,
+                                _buildCustomTextField(controller: _licenseExpiryController, label: 'License Expiry Date', icon: Icons.calendar_today,
                                   readOnly: true,
                                   onTap: () => _selectDate(context),
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.date_range, color: primaryColor),
-                                    onPressed: () => _selectDate(context),
-                                  ),
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please select expiry date';
-                                    }
-                                    return null;
-                                  },
+                                  suffixIcon: IconButton(icon: const Icon(Icons.date_range, color: primaryColor), onPressed: () => _selectDate(context)),
+                                  validator: (value) => value == null || value.isEmpty ? 'Please select expiry date' : null,
                                 ),
                               ],
                             ),
-
-                            // Truck Types Section
                             _buildTruckTypesField(),
-
-                            // License Photo Section
-                            _buildPhotoField(
-                              label: 'License Photo',
-                              isLicensePhoto: true,
-                              existingPhotoUrl: _licensePhotoUrl,
-                            ),
-
-                            // Submit Button
                             Container(
                               width: double.infinity,
                               height: 56,
@@ -1177,33 +804,18 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
                                   backgroundColor: primaryColor,
                                   foregroundColor: Colors.white,
                                   elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                 ),
                                 child: _isSubmitting
                                     ? const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                            ),
-                                          ),
+                                          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white))),
                                           SizedBox(width: 12),
-                                          Text(
-                                            'Saving Changes...',
-                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                                          ),
+                                          Text('Saving Changes...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                                         ],
                                       )
-                                    : const Text(
-                                        'Save Changes',
-                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                                      ),
+                                    : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                               ),
                             ),
                           ],
@@ -1224,7 +836,6 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     _phoneController.dispose();
     _ageController.dispose();
     _experienceController.dispose();
-    _licenseTypeController.dispose();
     _licenseNumberController.dispose();
     _licenseExpiryController.dispose();
     _locationController.dispose();

@@ -1,3 +1,4 @@
+// owner_dashboard.dart - Enhanced version matching driver dashboard
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/services.dart';
@@ -22,7 +23,7 @@ class _OwnerDashboardState extends State<OwnerDashboard>
     'assets/images/banner5.jpg',
   ];
 
-  final List<Map<String, dynamic>> vehicleTypes = [
+  final List<Map<String, String>> vehicleTypes = [
     {"image": "assets/images/body_vehicle.png", "label": "Body Vehicle"},
     {"image": "assets/images/trailer.png", "label": "Trailer"},
     {"image": "assets/images/tipper.png", "label": "Tipper"},
@@ -73,12 +74,26 @@ class _OwnerDashboardState extends State<OwnerDashboard>
     );
   }
 
+  Widget _buildNotificationButton() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications_none_rounded, size: 28),
+          onPressed: () {
+            // Handle notifications
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Theme(
       data: ThemeData.light().copyWith(
         primaryColor: Colors.blueAccent,
-        scaffoldBackgroundColor: const Color.fromARGB(255, 244, 243, 255),  // Updated: Set background color here
+        scaffoldBackgroundColor: const Color.fromARGB(255, 244, 243, 255),
         textTheme: TextTheme(
           headlineLarge: GoogleFonts.poppins(
             fontSize: 24,
@@ -148,17 +163,11 @@ class _OwnerDashboardState extends State<OwnerDashboard>
                         FadeTransition(
                           opacity: _fadeAnimation,
                           child: Text(
-                            "Welcome 👋",
+                            "Welcome Owner 👋",
                             style: Theme.of(context).textTheme.headlineLarge,
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.notifications_none_rounded,
-                            size: 28,
-                          ),
-                          onPressed: () {},
-                        ),
+                        _buildNotificationButton(),
                       ],
                     ),
                     const SizedBox(height: 24),
@@ -202,7 +211,7 @@ class _OwnerDashboardState extends State<OwnerDashboard>
                     ),
                     const SizedBox(height: 32),
                     Text(
-                      "Choose Vehicle Type",
+                      "Find Drivers by Vehicle Type",
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     const SizedBox(height: 16),
@@ -246,8 +255,8 @@ class _OwnerDashboardState extends State<OwnerDashboard>
                                         vehicle["label"]!,
                                         textAlign: TextAlign.center,
                                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                     ],
                                   ),
