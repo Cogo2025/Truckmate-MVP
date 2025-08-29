@@ -33,8 +33,13 @@ class _JobDetailPageState extends State<JobDetailPage> {
   String? errorMessage;
   String? likeId;
   bool _showingImage = false;
-  bool _showUnmaskedPhone = false;
+  bool _hasSeenImageForThisJob = false;
+  bool _showFullPhone = false;
   Timer? _imageTimer;
+  
+  // Add ScrollController and GlobalKey for scrolling to contact info
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _contactInfoKey = GlobalKey();
 
   @override
   void initState() {
@@ -42,26 +47,121 @@ class _JobDetailPageState extends State<JobDetailPage> {
     _fetchJobDetails();
     _fetchOwnerProfile();
     _checkIfLiked();
+    _checkIfImageSeenForThisJob();
   }
 
   @override
   void dispose() {
     _imageTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
+  // Scroll to contact information section
+  void _scrollToContactInfo() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_contactInfoKey.currentContext != null) {
+        final box = _contactInfoKey.currentContext!.findRenderObject() as RenderBox;
+        final position = box.localToGlobal(Offset.zero);
+        final scrollPosition = position.dy - MediaQuery.of(context).padding.top - kToolbarHeight;
+        
+        _scrollController.animateTo(
+          scrollPosition,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
+  // Check if user has seen the image for THIS specific job
+  Future<void> _checkIfImageSeenForThisJob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jobId = widget.job['_id']?.toString();
+    if (jobId == null) return;
+    
+    final seenJobs = prefs.getStringList('seenCallImageJobs') ?? [];
+    setState(() {
+      _hasSeenImageForThisJob = seenJobs.contains(jobId);
+      // If user has seen image for this job, show full phone immediately
+      if (_hasSeenImageForThisJob) {
+        _showFullPhone = true;
+      }
+    });
+  }
+
+  // Mark that user has seen the image for THIS specific job
+  Future<void> _markImageAsSeenForThisJob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jobId = widget.job['_id']?.toString();
+    if (jobId == null) return;
+    
+    final seenJobs = prefs.getStringList('seenCallImageJobs') ?? [];
+    if (!seenJobs.contains(jobId)) {
+      seenJobs.add(jobId);
+      await prefs.setStringList('seenCallImageJobs', seenJobs);
+    }
+    
+    setState(() {
+      _hasSeenImageForThisJob = true;
+      _showFullPhone = true; // Show full phone after seeing image
+    });
+  }
+
   void _contactOwner() {
+    // Only show image if it's the first time for THIS job
+    if (!_hasSeenImageForThisJob) {
+      _showImage();
+    } else {
+      // If already seen image for this job, just update the phone display and scroll to contact info
+      setState(() {
+        _showFullPhone = true;
+      });
+      _scrollToContactInfo();
+    }
+  }
+
+  void _showImage() async {
+    // Show the image
     setState(() {
       _showingImage = true;
     });
-
-    // Show image for 5 seconds
-    _imageTimer = Timer(const Duration(seconds: 5), () {
-      setState(() {
-        _showingImage = false;
-        _showUnmaskedPhone = true;
-      });
+    
+    // Show dialog with the image
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        child: Image.asset('assets/images/m.jpg'), // Replace with your actual image path
+      ),
+    );
+    
+    // Mark that user has seen the image for THIS job
+    await _markImageAsSeenForThisJob();
+    
+    // Wait for 5 seconds
+    await Future.delayed(const Duration(seconds: 5));
+    
+    // Close the image dialog
+    Navigator.of(context).pop();
+    
+    // Reset the state
+    setState(() {
+      _showingImage = false;
+      _showFullPhone = true; // Unmask the phone number
     });
+    
+    // Scroll to contact information after showing image
+    _scrollToContactInfo();
+  }
+
+  String _getPhoneDisplay() {
+    final phone = widget.job['phone']?.toString() ?? '';
+    if (_showFullPhone || _hasSeenImageForThisJob) {
+      return phone;
+    }
+    if (phone.length <= 4) return phone;
+    return '******${phone.substring(phone.length - 4)}';
   }
 
   void _showFullScreenImage(int initialIndex) {
@@ -367,6 +467,123 @@ class _JobDetailPageState extends State<JobDetailPage> {
     );
   }
 
+  // Modified: Phone Number Box with Owner Info (without button)
+  Widget _buildOwnerContactBox() {
+    return Container(
+      key: _contactInfoKey,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Owner Name
+          Text(
+            ownerProfile?['name'] ??
+                widget.job['ownerName'] ??
+                widget.job['owner']?['name'] ??
+                'Owner Name',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          
+          // Company Name
+          if (ownerProfile?['companyName'] != null)
+            Text(
+              ownerProfile!['companyName'],
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: primaryColor,
+              ),
+            ),
+          
+          const SizedBox(height: 16),
+          
+          // Phone Number Section
+          Row(
+            children: [
+              Icon(Icons.phone, color: primaryColor, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Contact Number',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: subTextColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getPhoneDisplay(),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _showFullPhone ? primaryColor : textColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // NEW: Bottom Contact Button
+  Widget _buildBottomContactButton() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton(
+        onPressed: _contactOwner,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        child: Text(
+          _hasSeenImageForThisJob ? 'View Phone Number' : 'Contact Owner',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
   Widget _buildJobDetails() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -385,22 +602,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Company Name
-          if (ownerProfile?['companyName'] != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                ownerProfile!['companyName'],
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 2,
-              ),
-            ),
-
           // Job Description
           if (widget.job['description'] != null)
             Padding(
@@ -638,63 +839,12 @@ class _JobDetailPageState extends State<JobDetailPage> {
     return Container();
   }
 
-  Widget _buildContactButton() {
-    final phone = widget.job['phone']?.toString() ?? '';
-    final maskedPhone = phone.length > 4 
-        ? 'XXXXX${phone.substring(phone.length - 4)}'
-        : 'XXXXX';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 2,
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Text(
-            _showUnmaskedPhone ? phone : maskedPhone,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: _showUnmaskedPhone ? primaryColor : textColor,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _showUnmaskedPhone ? null : _contactOwner,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text(
-              "Contact Owner",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_showingImage) {
       return Scaffold(
         body: Center(
-          child: Image.asset('assets/images/banner1.jpg', fit: BoxFit.cover),
+          child: Image.asset('assets/images/m.jpg', fit: BoxFit.cover),
         ),
       );
     }
@@ -765,6 +915,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
                   },
                   color: primaryColor,
                   child: SingleChildScrollView(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
@@ -780,16 +931,22 @@ class _JobDetailPageState extends State<JobDetailPage> {
                           child: _buildOwnerInfo(),
                         ),
                         const SizedBox(height: 16),
+                        // Owner Contact Box with Phone Number (without button)
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 650),
+                          child: _buildOwnerContactBox(),
+                        ),
+                        const SizedBox(height: 16),
                         // Job Details with animation
                         FadeInUp(
                           duration: const Duration(milliseconds: 700),
                           child: _buildJobDetails(),
                         ),
                         const SizedBox(height: 16),
-                        // Contact Owner button
+                        // NEW: Bottom Contact Button
                         FadeInUp(
-                          duration: const Duration(milliseconds: 800),
-                          child: _buildContactButton(),
+                          duration: const Duration(milliseconds: 750),
+                          child: _buildBottomContactButton(),
                         ),
                       ],
                     ),
