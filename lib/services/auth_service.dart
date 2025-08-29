@@ -1,3 +1,4 @@
+import 'dart:convert'; // *** ADDED: Required for jsonEncode/jsonDecode ***
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,7 +23,7 @@ class AuthService {
       
       // Force token refresh
       final idToken = await user.getIdToken(true);
-      if (idToken!.isEmpty) return null;
+      if (idToken == null || idToken.isEmpty) return null;
       
       // Save the fresh token
       await saveAuthToken(idToken);
@@ -49,10 +50,116 @@ class AuthService {
     }
   }
 
-  // Clear all auth data
+  // *** ENHANCED: Clear all auth data for proper logout ***
   static Future<void> clearAuthData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('authToken');
-    await prefs.remove('userData');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Clear auth-related keys
+      await prefs.remove('authToken');
+      await prefs.remove('userData');
+      
+      // *** ADDITIONAL: Clear any other user-related data ***
+      await prefs.remove('userRole');
+      await prefs.remove('isLoggedIn');
+      await prefs.remove('driverProfile');
+      await prefs.remove('ownerProfile');
+      await prefs.remove('verificationStatus');
+      
+      print('✅ Auth data cleared successfully');
+    } catch (e) {
+      print('❌ Error clearing auth data: $e');
+      throw e;
+    }
+  }
+
+  // *** NEW: Save user data to SharedPreferences ***
+  static Future<void> saveUserData(Map<String, dynamic> userData) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userData', jsonEncode(userData)); // Now works with import
+    } catch (e) {
+      print("Save user data error: $e");
+    }
+  }
+
+  // *** NEW: Get user data from SharedPreferences ***
+  static Future<Map<String, dynamic>?> getUserData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataString = prefs.getString('userData');
+      if (userDataString != null) {
+        return jsonDecode(userDataString); // Now works with import
+      }
+      return null;
+    } catch (e) {
+      print("Get user data error: $e");
+      return null;
+    }
+  }
+
+  // *** NEW: Update availability status locally ***
+  static Future<void> updateLocalAvailability(bool isAvailable) async {
+    try {
+      final userData = await getUserData();
+      if (userData != null) {
+        userData['isAvailable'] = isAvailable;
+        await saveUserData(userData);
+      }
+    } catch (e) {
+      print("Update local availability error: $e");
+    }
+  }
+
+  // *** NEW: Get current availability status ***
+  static Future<bool> getCurrentAvailability() async {
+    try {
+      final userData = await getUserData();
+      return userData?['isAvailable'] ?? false;
+    } catch (e) {
+      print("Get availability error: $e");
+      return false;
+    }
+  }
+
+  // *** NEW: Check if user has completed profile ***
+  static Future<bool> hasCompletedProfile() async {
+    try {
+      final userData = await getUserData();
+      return userData?['profileCompleted'] ?? false;
+    } catch (e) {
+      print("Check profile completion error: $e");
+      return false;
+    }
+  }
+
+  // *** NEW: Get user role ***
+  static Future<String?> getUserRole() async {
+    try {
+      final userData = await getUserData();
+      return userData?['role'];
+    } catch (e) {
+      print("Get user role error: $e");
+      return null;
+    }
+  }
+
+  // *** NEW: Complete logout process ***
+  static Future<void> performLogout() async {
+    try {
+      print('🚪 Starting complete logout process...');
+      
+      // 1. Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      print('✅ Firebase signout successful');
+      
+      // 2. Clear all local data
+      await clearAuthData();
+      print('✅ Local data cleared');
+      
+    } catch (e) {
+      print('❌ Logout error: $e');
+      throw e;
+    }
   }
 }

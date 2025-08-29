@@ -98,7 +98,7 @@ class _MyPostedJobsPageState extends State<MyPostedJobsPage>
     try {
       _refreshController.repeat();
       final response = await http.get(
-        Uri.parse(ApiConfig.jobs),
+        Uri.parse(ApiConfig.ownerJobs),
         headers: {"Authorization": "Bearer $token"},
       );
       _refreshController.stop();

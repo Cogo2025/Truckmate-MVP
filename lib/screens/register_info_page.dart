@@ -5,7 +5,8 @@ import 'dart:convert';
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/driver_main_navigation.dart';
 import 'package:truckmate_app/screens/owner/owner_main_navigation.dart';
-import 'package:google_fonts/google_fonts.dart'; // For consistent Poppins font
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class RegisterSelectionPage extends StatefulWidget {
   const RegisterSelectionPage({super.key});
@@ -15,6 +16,7 @@ class RegisterSelectionPage extends StatefulWidget {
 }
 
 class _RegisterSelectionPageState extends State<RegisterSelectionPage> {
+  final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   String _selectedRole = 'driver';
@@ -25,55 +27,170 @@ class _RegisterSelectionPageState extends State<RegisterSelectionPage> {
     super.initState();
     final user = FirebaseAuth.instance.currentUser;
     _nameController.text = user?.displayName ?? '';
+    
+    // Debug current user state
+    print('🔐 Current Firebase User: ${user?.uid}');
+    print('🔐 Display Name: ${user?.displayName}');
+    print('🔐 Email: ${user?.email}');
   }
 
-  Future<void> submitRegistration() async {
-    final user = FirebaseAuth.instance.currentUser;
-    final idToken = await user?.getIdToken(true);
-    if (idToken == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID token missing.")));
-      return;
+  // Enhanced validation method
+  bool _validateForm() {
+    if (!_formKey.currentState!.validate()) {
+      return false;
     }
 
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
-    if (name.isEmpty || phone.isEmpty || _selectedRole.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Fill all fields")));
+    
+    if (name.isEmpty) {
+      _showError('Name is required');
+      return false;
+    }
+    
+    if (name.length < 2) {
+      _showError('Name must be at least 2 characters');
+      return false;
+    }
+    
+    if (phone.isEmpty) {
+      _showError('Phone number is required');
+      return false;
+    }
+    
+    if (phone.length < 10) {
+      _showError('Phone number must be at least 10 digits');
+      return false;
+    }
+    
+    return true;
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Future<void> submitRegistration() async {
+    if (!_validateForm()) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    
+    if (user == null) {
+      _showError('No user is signed in. Please sign in first.');
       return;
     }
 
     setState(() => _isLoading = true);
+
     try {
+      final idToken = await user.getIdToken(true);
+      
+      if (idToken == null || idToken.isEmpty) {
+        _showError('Failed to get authentication token');
+        return;
+      }
+
+      final name = _nameController.text.trim();
+      final phone = _phoneController.text.trim();
+
+      // *** ENHANCED DEBUGGING ***
+      print('🔐 Debug - Firebase User: ${user.uid}');
+      print('🔐 Debug - ID Token length: ${idToken.length}');
+      print('🔐 Debug - Name: "$name"');
+      print('🔐 Debug - Phone: "$phone"');
+      print('🔐 Debug - Role: "$_selectedRole"');
+
+      final requestBody = {
+        "idToken": idToken,
+        "name": name,
+        "phone": phone,
+        "role": _selectedRole,
+      };
+
+      print('📤 Request Body: ${jsonEncode(requestBody)}');
+
       final response = await http.post(
         Uri.parse(ApiConfig.googleLogin),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "idToken": idToken,
-          "name": name,
-          "phone": phone,
-          "role": _selectedRole,
-        }),
+        body: jsonEncode(requestBody),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception("Request timeout - please try again");
+        },
       );
 
+      print('📥 Response Status: ${response.statusCode}');
+      print('📥 Response Body: ${response.body}');
+
       final data = jsonDecode(response.body);
+
       if (response.statusCode == 200) {
-        final role = data["user"]["role"];
+        final user = data["user"];
+        final role = user["role"];
+
+        // Save user data
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('userData', jsonEncode(user));
+
+        _showSuccess('Registration successful!');
+
+        // Wait a moment before navigation
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Navigate based on role
         if (role == "driver") {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverMainNavigation()));
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (_) => const DriverMainNavigation())
+          );
         } else if (role == "owner") {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OwnerMainNavigation()));
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (_) => const OwnerMainNavigation())
+          );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid role.")));
+          _showError("Invalid role received from server");
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data["error"] ?? "Registration failed")),
-        );
+        final error = data["error"] ?? "Registration failed";
+        final details = data["details"] ?? "";
+        _showError("$error${details.isNotEmpty ? ': $details' : ''}");
       }
+
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      print('❌ Registration Error: $e');
+      _showError("Registration failed: ${e.toString()}");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
-    setState(() => _isLoading = false);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    super.dispose();
   }
 
   @override
@@ -130,122 +247,169 @@ class _RegisterSelectionPageState extends State<RegisterSelectionPage> {
             padding: const EdgeInsets.all(24.0),
             child: _isLoading
                 ? const Center(
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation(Colors.blueAccent),
-                    ),
-                  )
-                : SingleChildScrollView(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center, // Changed to center for overall alignment
                       children: [
-                        const SizedBox(height: 20),
-                        FadeInAnimation(
-                          child: Text(
-                            "Complete Your Registration",
-                            textAlign: TextAlign.center, // Explicitly center the title text
-                            style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                                  shadows: [
-                                    const Shadow(
-                                      blurRadius: 4.0,
-                                      color: Colors.black12,
-                                      offset: Offset(1.0, 1.0),
-                                    ),
-                                  ],
-                                ),
-                          ),
+                        CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation(Colors.blueAccent),
                         ),
-                        const SizedBox(height: 30),
-                        FadeInAnimation(
-                          delay: const Duration(milliseconds: 300),
-                          child: Text(
-                            "Name",
-                            textAlign: TextAlign.center, // Center the label
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Completing registration...',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                         ),
-                        const SizedBox(height: 8),
-                        FadeInAnimation(
-                          delay: const Duration(milliseconds: 400),
-                          child: TextField(
-                            controller: _nameController,
-                            textAlign: TextAlign.center, // Center input text
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        FadeInAnimation(
-                          delay: const Duration(milliseconds: 500),
-                          child: Text(
-                            "Phone",
-                            textAlign: TextAlign.center, // Center the label
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        FadeInAnimation(
-                          delay: const Duration(milliseconds: 600),
-                          child: TextField(
-                            controller: _phoneController,
-                            keyboardType: TextInputType.phone,
-                            textAlign: TextAlign.center, // Center input text
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        FadeInAnimation(
-                          delay: const Duration(milliseconds: 700),
-                          child: Text(
-                            "Role",
-                            textAlign: TextAlign.center, // Center the label
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        FadeInAnimation(
-                          delay: const Duration(milliseconds: 800),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center, // Center the radio buttons row
-                            children: [
-                              Radio<String>(
-                                value: 'driver',
-                                groupValue: _selectedRole,
-                                onChanged: (value) {
-                                  setState(() => _selectedRole = value!);
-                                },
+                      ],
+                    ),
+                  )
+                : Form(
+                    key: _formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 20),
+                          
+                          FadeInAnimation(
+                            child: Text(
+                              "Complete Your Registration",
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                                shadows: [
+                                  const Shadow(
+                                    blurRadius: 4.0,
+                                    color: Colors.black12,
+                                    offset: Offset(1.0, 1.0),
+                                  ),
+                                ],
                               ),
-                              Text(
-                                "Driver",
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                              const SizedBox(width: 20),
-                              Radio<String>(
-                                value: 'owner',
-                                groupValue: _selectedRole,
-                                onChanged: (value) {
-                                  setState(() => _selectedRole = value!);
-                                },
-                              ),
-                              Text(
-                                "Owner",
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 40),
-                        SlideInAnimation(
-                          child: Center(
-                            child: ElevatedButton.icon(
-                              onPressed: submitRegistration,
-                              icon: const Icon(
-                                Icons.check_rounded, // Attractive Material icon for submission
-                                size: 24,
-                              ),
-                              label: const Text("Submit"),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                          
+                          const SizedBox(height: 30),
+                          
+                          FadeInAnimation(
+                            delay: const Duration(milliseconds: 300),
+                            child: Text(
+                              "Name",
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 8),
+                          
+                          FadeInAnimation(
+                            delay: const Duration(milliseconds: 400),
+                            child: TextFormField(
+                              controller: _nameController,
+                              textAlign: TextAlign.center,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Name is required';
+                                }
+                                if (value.trim().length < 2) {
+                                  return 'Name must be at least 2 characters';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 16),
+                          
+                          FadeInAnimation(
+                            delay: const Duration(milliseconds: 500),
+                            child: Text(
+                              "Phone",
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 8),
+                          
+                          FadeInAnimation(
+                            delay: const Duration(milliseconds: 600),
+                            child: TextFormField(
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              textAlign: TextAlign.center,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Phone number is required';
+                                }
+                                if (value.trim().length < 10) {
+                                  return 'Phone number must be at least 10 digits';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 16),
+                          
+                          FadeInAnimation(
+                            delay: const Duration(milliseconds: 700),
+                            child: Text(
+                              "Role",
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 8),
+                          
+                          FadeInAnimation(
+                            delay: const Duration(milliseconds: 800),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Radio<String>(
+                                  value: 'driver',
+                                  groupValue: _selectedRole,
+                                  onChanged: (value) {
+                                    setState(() => _selectedRole = value!);
+                                  },
+                                ),
+                                Text(
+                                  "Driver",
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                                const SizedBox(width: 20),
+                                Radio<String>(
+                                  value: 'owner',
+                                  groupValue: _selectedRole,
+                                  onChanged: (value) {
+                                    setState(() => _selectedRole = value!);
+                                  },
+                                ),
+                                Text(
+                                  "Owner",
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 40),
+                          
+                          SlideInAnimation(
+                            child: Center(
+                              child: ElevatedButton.icon(
+                                onPressed: submitRegistration,
+                                icon: const Icon(
+                                  Icons.check_rounded,
+                                  size: 24,
+                                ),
+                                label: const Text("Submit"),
+                              ),
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 20),
+                        ],
+                      ),
                     ),
                   ),
           ),
@@ -255,7 +419,7 @@ class _RegisterSelectionPageState extends State<RegisterSelectionPage> {
   }
 }
 
-// Animation Widgets (kept minimal; consider centralizing in a shared file for reuse across pages)
+// Keep your existing animation classes...
 class FadeInAnimation extends StatefulWidget {
   final Widget child;
   final Duration delay;

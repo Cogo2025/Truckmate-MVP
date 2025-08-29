@@ -58,22 +58,22 @@ class _OwnerDashboardState extends State<OwnerDashboard>
     super.dispose();
   }
 
-  void _onVehicleTypeSelected(String vehicleType) {
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            OwnerMainNavigation(
-          initialTabIndex: 3,
-          selectedTruckType: vehicleType,
-        ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
+void _onVehicleTypeSelected(String vehicleType) {
+  Navigator.pushReplacement(
+    context,
+    PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          OwnerMainNavigation(
+        initialTabIndex: 3, // Drivers tab
+        selectedTruckType: vehicleType,
+        isFromDashboard: true, // This flag is important
       ),
-    );
-  }
-
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+    ),
+  );
+}
   Widget _buildNotificationButton() {
     return Stack(
       clipBehavior: Clip.none,

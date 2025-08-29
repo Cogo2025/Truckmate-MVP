@@ -5,12 +5,15 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:truckmate_app/api_config.dart';
 import 'package:truckmate_app/screens/driver/edit_driver_profile_page.dart';
-import 'package:truckmate_app/screens/welcome_page.dart'; // Added import for welcome page
+import 'package:truckmate_app/screens/welcome_page.dart';
+import 'package:truckmate_app/services/auth_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart'; // *** NEW: Added for URL launching ***
 import 'driver_profile_setup.dart';
 
 class DriverProfilePage extends StatefulWidget {
-  final Map userData;
+  final Map<String, dynamic> userData;
 
   const DriverProfilePage({Key? key, required this.userData}) : super(key: key);
 
@@ -18,23 +21,25 @@ class DriverProfilePage extends StatefulWidget {
   _DriverProfilePageState createState() => _DriverProfilePageState();
 }
 
-class _DriverProfilePageState extends State<DriverProfilePage> with SingleTickerProviderStateMixin { // Added SingleTickerProviderStateMixin
-  Map? _profileData;
-  Map? _currentUserData;
+class _DriverProfilePageState extends State<DriverProfilePage> with SingleTickerProviderStateMixin {
+  Map<String, dynamic>? _profileData;
+  Map<String, dynamic>? _currentUserData;
   bool _isLoading = true;
   String? _errorMessage;
-  
-  // Added animation controller for signout dialog
+  bool _isProfileComplete = false;
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
+  bool _isLoggingOut = false;
+  
+  // *** Availability toggle state ***
+  bool _isAvailable = false;
+  bool _isUpdatingAvailability = false;
 
   @override
   void initState() {
     super.initState();
     _currentUserData = widget.userData;
     _loadProfileData();
-    
-    // Initialize animation controller
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 650),
       vsync: this,
@@ -45,8 +50,20 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
 
   @override
   void dispose() {
-    _fadeController.dispose(); // Dispose animation controller
+    _fadeController.dispose();
     super.dispose();
+  }
+
+  // *** NEW: Launch URL method for Support & Tutorial links ***
+  Future<void> _launchURL(String url) async {
+    try {
+      final Uri uri = Uri.parse(url);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw 'Could not launch $url';
+      }
+    } catch (e) {
+      _showError("Could not open link: $e");
+    }
   }
 
   Future<void> _loadProfileData() async {
@@ -61,19 +78,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
         return;
       }
 
-      // Load fresh user data
-      final userResponse = await http.get(
-        Uri.parse(ApiConfig.authMe),
-        headers: {
-          "Authorization": "Bearer $token",
-        },
-      );
-
-      if (userResponse.statusCode == 200) {
-        _currentUserData = jsonDecode(userResponse.body);
-      }
-
-      // Load profile data
+      // Load profile data (will return user data with N/A if profile not complete)
       final response = await http.get(
         Uri.parse(ApiConfig.driverProfile),
         headers: {
@@ -82,16 +87,14 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
       );
 
       if (response.statusCode == 200) {
-        final Map responseData = jsonDecode(response.body);
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
         setState(() {
           _profileData = responseData['profile'];
+          _isProfileComplete = _profileData?['profileCompleted'] == true;
+          _isAvailable = _profileData?['isAvailable'] ?? false;
           _isLoading = false;
         });
-      } else if (response.statusCode == 404) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = "Profile not found. Please complete your profile setup.";
-        });
+        _fadeController.forward();
       } else {
         setState(() {
           _isLoading = false;
@@ -102,6 +105,61 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
       setState(() {
         _isLoading = false;
         _errorMessage = "Error loading profile: ${e.toString()}";
+      });
+    }
+  }
+
+  // *** Update availability toggle ***
+  Future<void> _updateAvailability(bool newValue) async {
+    if (_isUpdatingAvailability) return;
+
+    setState(() {
+      _isUpdatingAvailability = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      
+      if (token == null) {
+        _showError("Authentication token missing");
+        return;
+      }
+
+      print('🔄 Updating availability to: $newValue');
+
+      final response = await http.patch(
+        Uri.parse(ApiConfig.updateAvailability),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode({"isAvailable": newValue}),
+      );
+
+      print('📥 Response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isAvailable = newValue;
+          if (_profileData != null) {
+            _profileData!['isAvailable'] = newValue;
+          }
+        });
+        
+        _showSuccess(newValue 
+            ? "You are now available for job opportunities!" 
+            : "You are now unavailable for jobs");
+      } else {
+        final data = jsonDecode(response.body);
+        _showError(data['error'] ?? 'Failed to update availability');
+      }
+    } catch (e) {
+      print('❌ Availability update error: $e');
+      _showError("Failed to update availability: ${e.toString()}");
+    } finally {
+      setState(() {
+        _isUpdatingAvailability = false;
       });
     }
   }
@@ -117,134 +175,118 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
           ),
         ),
       ).then((_) {
-        // Refresh profile data after editing
         _loadProfileData();
       });
     }
   }
 
-  // Added signout function similar to owner profile
-  Future<void> _logout() async {
-    final bool? shouldLogout = await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => FadeTransition(
-        opacity: _fadeAnimation,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          backgroundColor: Colors.white,
-          title: Row(
-            children: [
-              Icon(Icons.logout, color: Colors.red.shade600),
-              const SizedBox(width: 8),
-              const Text("Logout", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-            ],
-          ),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Are you sure you want to logout?", style: TextStyle(fontSize: 16)),
-              SizedBox(height: 8),
-              Text("You will need to sign in again to access your account.",
-                  style: TextStyle(fontSize: 14, color: Colors.grey)),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text("Cancel", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text("Logout", style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-          ],
+  void _navigateToProfileSetup() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DriverProfileSetupPage(
+          userData: _currentUserData ?? {},
         ),
+      ),
+    ).then((_) {
+      _loadProfileData();
+    });
+  }
+
+  // *** FIXED: Complete logout function ***
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+
+    // Show confirmation dialog
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?\n\nYou will need to sign in again to access your account.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
 
-    if (shouldLogout == true) {
-      try {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text("Logging out...", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
+    if (shouldLogout != true) return;
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
-        await Future.delayed(const Duration(milliseconds: 600));
+    setState(() {
+      _isLoggingOut = true;
+    });
 
-        if (mounted) {
-          Navigator.of(context).pop(); // Close loading
-          await Future.delayed(const Duration(milliseconds: 100));
-          Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (context) => const WelcomePage()), (route) => false);
+    try {
+      print('🚪 Starting logout process...');
 
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Row(children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text("Logged out successfully", style: TextStyle(fontWeight: FontWeight.w500)),
-                  ]),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              );
-            }
-          });
-        }
-      } catch (e) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.error, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text("Logout failed: ${e.toString()}", style: const TextStyle(fontWeight: FontWeight.w500))),
-                ],
-              ),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-              behavior: SnackBarBehavior.floating,
-              action: SnackBarAction(
-                label: "Retry",
-                textColor: Colors.white,
-                onPressed: _logout,
-              ),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        }
+      // 1. Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      print('✅ Firebase signout successful');
+
+      // 2. Clear local authentication data
+      await AuthService.clearAuthData();
+      print('✅ Local auth data cleared');
+
+      // 3. Clear SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      print('✅ SharedPreferences cleared');
+
+      // 4. Show success message
+      if (mounted) {
+        _showSuccess("Logged out successfully");
       }
+
+      // 5. Navigate to welcome page with delay
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const WelcomePage()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      print('❌ Logout error: $e');
+      if (mounted) {
+        _showError("Logout failed: ${e.toString()}");
+        setState(() {
+          _isLoggingOut = false;
+        });
+      }
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
     }
   }
 
@@ -265,17 +307,19 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
           Expanded(
             child: Text(
               value,
-              style: TextStyle(fontSize: 16),
+              style: TextStyle(
+                fontSize: 16,
+                color: value == 'N/A' ? Colors.grey : Colors.black,
+                fontStyle: value == 'N/A' ? FontStyle.italic : FontStyle.normal,
+              ),
             ),
           ),
-          if (canCopy)
+          if (canCopy && value != 'N/A')
             IconButton(
-              icon: Icon(Icons.copy, size: 18),
+              icon: const Icon(Icons.copy, size: 18),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: value));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Copied to clipboard!")),
-                );
+                _showSuccess("Copied to clipboard!");
               },
             ),
         ],
@@ -285,7 +329,34 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
 
   Widget _buildPhotoSection(String label, String? imageUrl) {
     if (imageUrl == null || imageUrl.isEmpty) {
-      return SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: const Center(
+                child: Text(
+                  'N/A',
+                  style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
     }
 
     return Column(
@@ -293,9 +364,9 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
       children: [
         Text(
           label,
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         GestureDetector(
           onTap: () => Navigator.push(
             context,
@@ -325,15 +396,270 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                     ),
                   );
                 },
-                errorBuilder: (context, error, stackTrace) => Center(
+                errorBuilder: (context, error, stackTrace) => const Center(
                   child: Icon(Icons.error_outline, color: Colors.red),
                 ),
               ),
             ),
           ),
         ),
-        SizedBox(height: 16),
+        const SizedBox(height: 16),
       ],
+    );
+  }
+
+  Widget _buildVerificationStatusCard() {
+    if (!_isProfileComplete) return const SizedBox.shrink();
+
+    final status = _profileData?['verificationStatus'] ?? 'pending';
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _getVerificationColor(status).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _getVerificationColor(status),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _getVerificationIcon(status),
+            color: _getVerificationColor(status),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Verification Status: ${status.toString().toUpperCase()}",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _getVerificationColor(status),
+                  ),
+                ),
+                if (status == 'pending')
+                  const Text(
+                    "Your profile is under admin review",
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                if (status == 'approved')
+                  const Text(
+                    "You can now access job opportunities",
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                if (status == 'rejected')
+                  Text(
+                    "Reason: ${_profileData?['rejectionReason'] ?? 'Please update your profile'}",
+                    style: const TextStyle(fontSize: 12, color: Colors.red),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // *** Availability toggle widget for approved drivers ***
+  Widget _buildAvailabilityToggle() {
+    final status = _profileData?['verificationStatus'] ?? 'pending';
+    
+    // Only show for approved drivers
+    if (status != 'approved' || !_isProfileComplete) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.work_outline,
+                color: Colors.blue[700],
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "Job Availability",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[700],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isAvailable ? "Available for Jobs" : "Not Available",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: _isAvailable ? Colors.green[700] : Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _isAvailable 
+                          ? "You will receive job notifications"
+                          : "You won't receive job notifications",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              _isUpdatingAvailability
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Switch(
+                      value: _isAvailable,
+                      onChanged: _updateAvailability,
+                      activeColor: Colors.white,
+                      activeTrackColor: Colors.green,
+                      inactiveThumbColor: Colors.white,
+                      inactiveTrackColor: Colors.grey[400],
+                    ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // *** NEW: Support & Help Card ***
+  Widget _buildSupportHelpCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.teal[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.teal[100]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.teal,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.support_agent_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  "Support & Help",
+                  style: TextStyle(
+                    color: Colors.teal[700],
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.teal[100],
+                      child: Icon(Icons.phone, color: Colors.teal[700]),
+                    ),
+                    title: Text(
+                      "Phone Support",
+                      style: TextStyle(
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      "1800-TRUCKMATE",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+                    onTap: () => _launchURL("tel:1800TRUCKMATE"),
+                  ),
+                  Divider(height: 1, color: Colors.grey[200]),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.teal[100],
+                      child: Icon(Icons.email_rounded, color: Colors.teal[700]),
+                    ),
+                    title: Text(
+                      "Email Support",
+                      style: TextStyle(
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      "support@truckmate.app",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+                    onTap: () => _launchURL("mailto:support@truckmate.app"),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -341,27 +667,22 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Driver Profile'),
+        title: const Text('Driver Profile'),
         actions: [
-          if (_profileData != null)
+          if (_isProfileComplete && !_isLoggingOut)
             IconButton(
-              icon: Icon(Icons.edit),
+              icon: const Icon(Icons.edit),
               onPressed: _navigateToEditProfile,
             ),
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadProfileData,
-          ),
-          // Added logout button to app bar
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: _logout,
-            tooltip: "Logout",
-          ),
+          if (!_isLoggingOut)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadProfileData,
+            ),
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
               ? Center(
                   child: Column(
@@ -369,212 +690,225 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                     children: [
                       Text(
                         _errorMessage!,
-                        style: TextStyle(color: Colors.red, fontSize: 16),
+                        style: const TextStyle(color: Colors.red, fontSize: 16),
                         textAlign: TextAlign.center,
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: _loadProfileData,
-                        child: Text("Retry"),
+                        child: const Text("Retry"),
                       ),
                     ],
                   ),
                 )
-              : _profileData == null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            "Profile not found",
-                            style: TextStyle(fontSize: 18),
-                          ),
-                          SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => DriverProfileSetupPage(
-                                    userData: _currentUserData ?? {},
-                                  ),
-                                ),
-                              );
-                            },
-                            child: Text("Create Profile"),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: ListView(
-                        children: [
-                          // Profile Header
-                          Center(
-                            child: Column(
-                              children: [
-                                CircleAvatar(
-                                  radius: 50,
-                                  backgroundImage: _profileData!['profilePhoto'] != null
-                                      ? NetworkImage(_profileData!['profilePhoto'])
-                                      : (_currentUserData?['photoUrl'] != null
-                                          ? NetworkImage(_currentUserData!['photoUrl'])
-                                          : null),
-                                  child: (_profileData!['profilePhoto'] == null &&
-                                          _currentUserData?['photoUrl'] == null)
-                                      ? Icon(Icons.person, size: 40)
-                                      : null,
-                                ),
-                                SizedBox(height: 16),
-                                Text(
-                                  // Try profile data first, then user data, then fallback
-                                  _profileData?['userName'] ??
-                                      _profileData?['name'] ??
-                                      _currentUserData?['name'] ??
-                                      'Unknown',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  _profileData?['userEmail'] ??
-                                      _currentUserData?['email'] ??
-                                      'No email provided',
-                                  style: TextStyle(color: Colors.grey[600]),
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: 24),
-
-                          // Personal Information
-                          Text(
-                            "Personal Information",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[700],
-                            ),
-                          ),
-                          SizedBox(height: 16),
-                          _buildInfoTile(
-                            "Name",
-                            _profileData?['userName'] ??
-                                _profileData?['name'] ??
-                                _currentUserData?['name'] ??
-                                "Not specified"
-                          ),
-                          // Removed canCopy: true from phone number as requested
-                          _buildInfoTile(
-                            "Phone",
-                            _profileData?['userPhone'] ??
-                                _currentUserData?['phone'] ??
-                                "Not provided"
-                          ),
-                          _buildInfoTile("Gender", _profileData!['gender'] ?? "Not specified"),
-                          _buildInfoTile("Age", _profileData!['age']?.toString() ?? "Not specified"),
-                          _buildInfoTile("Location", _profileData!['location'] ?? "Not specified"),
-
-                          SizedBox(height: 24),
-
-                          // Driver Information
-                          Text(
-                            "Driver Information",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[700],
-                            ),
-                          ),
-                          SizedBox(height: 16),
-                          _buildInfoTile("Experience", _profileData!['experience'] ?? "Not specified"),
-                          _buildInfoTile("License Number", _profileData!['licenseNumber'] ?? "Not specified", canCopy: true),
-                          _buildInfoTile(
-                            "License Expiry",
-                            _profileData!['licenseExpiryDate'] != null
-                                ? DateFormat('yyyy-MM-dd').format(DateTime.parse(_profileData!['licenseExpiryDate']))
-                                : "Not specified"
-                          ),
-                          _buildInfoTile(
-                            "Truck Types",
-                            _profileData!['knownTruckTypes'] != null
-                                ? (_profileData!['knownTruckTypes'] as List).join(", ")
-                                : "Not specified"
-                          ),
-
-                          SizedBox(height: 24),
-
-                          // Photos
-                          Text(
-                            "Photos",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[700],
-                            ),
-                          ),
-                          SizedBox(height: 16),
-                          _buildPhotoSection("License Front", _profileData!['licensePhotoFront']),
-                          _buildPhotoSection("License Back", _profileData!['licensePhotoBack']),
-
-                          SizedBox(height: 32),
-
-                          // Verification Status
-                          if (_profileData!['verificationStatus'] != null)
-                            Container(
-                              padding: EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: _getVerificationColor(_profileData!['verificationStatus']).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: _getVerificationColor(_profileData!['verificationStatus']),
+              : FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: ListView(
+                      children: [
+                        // Profile Header
+                        Center(
+                          child: Column(
+                            children: [
+                              CircleAvatar(
+                                radius: 50,
+                                backgroundImage: _profileData!['profilePhoto'] != null && _profileData!['profilePhoto'].isNotEmpty
+                                    ? NetworkImage(_profileData!['profilePhoto'])
+                                    : (_profileData?['userPhotoUrl'] != null && _profileData!['userPhotoUrl'].isNotEmpty
+                                        ? NetworkImage(_profileData!['userPhotoUrl'])
+                                        : null),
+                                child: (_profileData!['profilePhoto'] == null || _profileData!['profilePhoto'].isEmpty) &&
+                                        (_profileData?['userPhotoUrl'] == null || _profileData!['userPhotoUrl'].isEmpty)
+                                    ? const Icon(Icons.person, size: 40)
+                                    : null,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _profileData?['userName'] ?? _profileData?['name'] ?? 'Unknown',
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              child: Row(
+                              const SizedBox(height: 4),
+                              Text(
+                                _profileData?['userEmail'] ?? 'No email provided',
+                                style: TextStyle(color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // Show setup button if profile not complete
+                        if (!_isProfileComplete) ...[
+                          Card(
+                            color: Colors.blue[50],
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
                                 children: [
-                                  Icon(
-                                    _getVerificationIcon(_profileData!['verificationStatus']),
-                                    color: _getVerificationColor(_profileData!['verificationStatus']),
+                                  const Icon(Icons.info_outline, color: Colors.blue, size: 48),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Profile Setup Required',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue,
+                                    ),
                                   ),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      "Verification Status: ${_profileData!['verificationStatus']?.toString().toUpperCase() ?? 'PENDING'}",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: _getVerificationColor(_profileData!['verificationStatus']),
-                                      ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Complete your driver profile to access job opportunities and get verified by admin.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton.icon(
+                                    onPressed: _navigateToProfileSetup,
+                                    icon: const Icon(Icons.edit),
+                                    label: const Text('Complete Profile Setup'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue,
+                                      foregroundColor: Colors.white,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
 
-                          SizedBox(height: 24),
+                        // Verification Status (only show if profile complete)
+                        _buildVerificationStatusCard(),
 
-                          // Added Logout Button at bottom
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _logout,
-                              icon: const Icon(Icons.logout, size: 18),
-                              label: const Text('Logout'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                        // Availability Toggle (only for approved drivers)
+                        _buildAvailabilityToggle(),
+
+                        // Personal Information
+                        Text(
+                          "Personal Information",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildInfoTile("Name", _profileData?['userName'] ?? _profileData?['name'] ?? "Not specified"),
+                        _buildInfoTile("Phone", _profileData?['userPhone'] ?? "Not provided"),
+                        _buildInfoTile("Gender", _profileData?['gender']?.toString() ?? "N/A"),
+                        _buildInfoTile("Age", _profileData?['age']?.toString() ?? "N/A"),
+                        _buildInfoTile("Location", _profileData?['location']?.toString() ?? "N/A"),
+
+                        const SizedBox(height: 24),
+
+                        // Driver Information
+                        Text(
+                          "Driver Information",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildInfoTile("Experience", (_profileData?['experience']?.toString() ?? "N/A") + (_profileData?['experience'] != "N/A" ? " years" : "")),
+                        _buildInfoTile("License Number", _profileData?['licenseNumber']?.toString() ?? "N/A", canCopy: true),
+                        _buildInfoTile(
+                          "License Expiry",
+                          _profileData?['licenseExpiryDate'] != null
+                              ? DateFormat('yyyy-MM-dd').format(DateTime.parse(_profileData!['licenseExpiryDate']))
+                              : "N/A"
+                        ),
+                        _buildInfoTile(
+                          "Truck Types",
+                          _profileData?['knownTruckTypes'] != null && (_profileData!['knownTruckTypes'] as List).isNotEmpty
+                              ? (_profileData!['knownTruckTypes'] as List).join(", ")
+                              : "N/A"
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // Photos
+                        Text(
+                          "Photos",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildPhotoSection("License Front", _profileData?['licensePhotoFront']),
+                        _buildPhotoSection("License Back", _profileData?['licensePhotoBack']),
+
+                        // *** NEW: Support & Help Card ***
+                        _buildSupportHelpCard(),
+
+                        const SizedBox(height: 20),
+
+                        // *** NEW: Watch Tutorial Button ***
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _launchURL("https://www.youtube.com/watch?v=exampleTutorial"),
+                            icon: const Icon(Icons.play_circle_fill_rounded, size: 24),
+                            label: const Text("Watch Tutorial"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // *** NEW: Styled Logout Button ***
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _isLoggingOut ? null : _logout,
+                            icon: _isLoggingOut
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.logout_rounded, size: 24),
+                            label: Text(_isLoggingOut ? 'Logging out...' : 'Logout'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 32),
+                      ],
                     ),
+                  ),
+                ),
     );
   }
 
@@ -605,6 +939,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
   }
 }
 
+// Keep your existing _FullscreenImageViewer class
 class _FullscreenImageViewer extends StatelessWidget {
   final String imageUrl;
 
@@ -617,7 +952,7 @@ class _FullscreenImageViewer extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Center(
         child: InteractiveViewer(
@@ -639,7 +974,7 @@ class _FullscreenImageViewer extends StatelessWidget {
                 ),
               );
             },
-            errorBuilder: (context, error, stackTrace) => Center(
+            errorBuilder: (context, error, stackTrace) => const Center(
               child: Icon(Icons.error_outline, color: Colors.red, size: 50),
             ),
           ),

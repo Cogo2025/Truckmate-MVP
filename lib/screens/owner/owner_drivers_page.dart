@@ -8,10 +8,12 @@ import 'unique_driver_profile.dart'; // Import the new profile page
 
 class OwnerDriversPage extends StatefulWidget {
   final String? initialTruckTypeFilter;
+  final bool isFromDashboard; // Add this flag
 
   const OwnerDriversPage({
     super.key,
     this.initialTruckTypeFilter,
+    this.isFromDashboard = false, // Default to false
   });
 
   @override
@@ -26,15 +28,75 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
   String? selectedTruckType;
   List locations = [];
   List truckTypes = [];
+  bool hasInitialFilterBeenApplied = false;
 
-  @override
-  void initState() {
-    super.initState();
-    if (widget.initialTruckTypeFilter != null) {
-      selectedTruckType = widget.initialTruckTypeFilter;
-    }
-    fetchAvailableDrivers();
+@override
+void didUpdateWidget(OwnerDriversPage oldWidget) {
+  super.didUpdateWidget(oldWidget);
+  
+  // Only apply the initial filter if we're coming from dashboard
+  // and haven't applied it yet
+  if (widget.isFromDashboard && 
+      widget.initialTruckTypeFilter != null &&
+      !hasInitialFilterBeenApplied) {
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        selectedTruckType = widget.initialTruckTypeFilter;
+        hasInitialFilterBeenApplied = true;
+        isLoading = true;
+      });
+      fetchAvailableDrivers();
+    });
   }
+  
+  // If we're no longer coming from dashboard but still have the filter,
+  // clear it
+  else if (!widget.isFromDashboard && 
+           hasInitialFilterBeenApplied && 
+           selectedTruckType != null) {
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        selectedTruckType = null;
+        hasInitialFilterBeenApplied = false;
+        isLoading = true;
+      });
+      fetchAvailableDrivers();
+    });
+  }
+}
+
+// Add this to the initState method
+@override
+void initState() {
+  super.initState();
+  
+  // Apply initial filter if provided
+  if (widget.initialTruckTypeFilter != null && widget.isFromDashboard) {
+    selectedTruckType = widget.initialTruckTypeFilter;
+    hasInitialFilterBeenApplied = true;
+  }
+  
+  fetchAvailableDrivers();
+}
+void _clearAllFilters() {
+  setState(() {
+    selectedLocation = null;
+    selectedTruckType = null;
+    hasInitialFilterBeenApplied = false; // Reset this flag
+    isLoading = true;
+    
+    // Sort drivers to show newly created profiles first
+    // Assuming there's a 'createdAt' field or similar timestamp
+    drivers.sort((a, b) {
+      final aTime = a['createdAt'] ?? '';
+      final bTime = b['createdAt'] ?? '';
+      return bTime.compareTo(aTime); // Newest first
+    });
+  });
+  fetchAvailableDrivers();
+}
 
   // Updated: Fetch with fresh token and retry on expiration
   Future fetchAvailableDrivers() async {
@@ -392,12 +454,7 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 TextButton(
-                  onPressed: () {
-                    setState(() {
-                      selectedLocation = null;
-                      selectedTruckType = null;
-                    });
-                  },
+                  onPressed: _clearAllFilters, // Use the new method
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.grey.shade600,
                   ),
@@ -405,7 +462,6 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
                 ),
                 Row(
                   children: [
-                    
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () {
@@ -614,26 +670,26 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
       ),
     );
   }
-
-  @override
+@override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Available Drivers",
-              style: TextStyle(fontSize: 20),
-            ),
-            if (widget.initialTruckTypeFilter != null)
-              Text(
-                "Filtered by: ${widget.initialTruckTypeFilter}",
-                style: const TextStyle(fontSize: 12),
-              ),
-          ],
+  title: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        "Available Drivers",
+        style: TextStyle(fontSize: 20),
+      ),
+      if (widget.initialTruckTypeFilter != null && widget.isFromDashboard)
+        Text(
+          "Filtered by: ${widget.initialTruckTypeFilter}",
+          style: const TextStyle(fontSize: 12),
         ),
+    ],
+  ),
+      
         automaticallyImplyLeading: false,
         backgroundColor: theme.primaryColor,
         foregroundColor: Colors.white,
@@ -650,17 +706,11 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
-            onPressed: () {
-              setState(() {
-                selectedLocation = null;
-                selectedTruckType = widget.initialTruckTypeFilter;
-                isLoading = true;
-              });
-              fetchAvailableDrivers();
-            },
+            onPressed: _clearAllFilters, // Use the new method
           ),
         ],
       ),
+ 
       body: Column(
         children: [
           // Active Filters Display
@@ -683,39 +733,43 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
                       runSpacing: 8,
                       children: [
                         if (selectedLocation != null)
-                          InputChip(
-                            label: Text(selectedLocation!),
-                            labelStyle: TextStyle(color: theme.primaryColor),
-                            deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
-                            onDeleted: () {
-                              setState(() {
-                                selectedLocation = null;
-                                isLoading = true;
-                              });
-                              fetchAvailableDrivers();
-                            },
-                            backgroundColor: theme.primaryColor.withOpacity(0.1),
-                            shape: StadiumBorder(
-                              side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
-                            ),
-                          ),
-                        if (selectedTruckType != null)
-                          InputChip(
-                            label: Text(selectedTruckType!),
-                            labelStyle: TextStyle(color: theme.primaryColor),
-                            deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
-                            onDeleted: () {
-                              setState(() {
-                                selectedTruckType = null;
-                                isLoading = true;
-                              });
-                              fetchAvailableDrivers();
-                            },
-                            backgroundColor: theme.primaryColor.withOpacity(0.1),
-                            shape: StadiumBorder(
-                              side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
-                            ),
-                          ),
+    InputChip(
+      label: Text(selectedLocation!),
+      labelStyle: TextStyle(color: theme.primaryColor),
+      deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
+      onDeleted: () {
+        setState(() {
+          selectedLocation = null;
+          isLoading = true;
+        });
+        fetchAvailableDrivers();
+      },
+      backgroundColor: theme.primaryColor.withOpacity(0.1),
+      shape: StadiumBorder(
+        side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+      ),
+    ),
+  // In the _buildActiveFiltersChips section of owner_drivers_page.dart:
+
+// In the _buildActiveFiltersChips section
+if (selectedTruckType != null)
+  InputChip(
+    label: Text(selectedTruckType!),
+    labelStyle: TextStyle(color: theme.primaryColor),
+    deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
+    onDeleted: () {
+      setState(() {
+        selectedTruckType = null;
+        hasInitialFilterBeenApplied = false; // Reset this flag
+        isLoading = true;
+      });
+      fetchAvailableDrivers();
+    },
+    backgroundColor: theme.primaryColor.withOpacity(0.1),
+    shape: StadiumBorder(
+      side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+    ),
+  ),
                       ],
                     ),
                   ),

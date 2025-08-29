@@ -1,6 +1,6 @@
 class ApiConfig {
   // Base URL configuration
-  static const String baseUrl = "http://192.168.85.244:5000";
+  static const String baseUrl = "https://192.168.85.244:5000";
   // Health check endpoint
   static const String healthCheck = '$baseUrl/health';
   
