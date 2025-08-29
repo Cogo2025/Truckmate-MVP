@@ -196,20 +196,15 @@ void _contactDriver() {
             child: const Text('Close'),
           ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Only show image if it's the first time
-              if (!_hasSeenImageBefore) {
-                _showImageAndCall();
-              } else {
-                _makePhoneCall();
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-            ),
-            child: const Text('Call Now', style: TextStyle(color: Colors.white)),
-          ),
+  onPressed: () {
+    Navigator.pop(context);
+    // Phone launcher removed; no action on call now
+  },
+  style: ElevatedButton.styleFrom(
+    backgroundColor: Colors.green,
+  ),
+  child: const Text('Call Now', style: TextStyle(color: Colors.white)),
+),
         ],
       ),
     );

@@ -19,6 +19,16 @@ class OwnerProfilePage extends StatefulWidget {
 }
 
 class _OwnerProfilePageState extends State<OwnerProfilePage> with SingleTickerProviderStateMixin {
+
+  Future<void> _launchURL(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not launch the requested app')),
+      );
+    }
+  }
+  
   bool isLoading = true;
   bool isEditing = false;
   bool isUpdating = false;
@@ -1308,15 +1318,34 @@ _buildGradientCard(
         ],
       ),
       const SizedBox(height: 16),
-      _buildInfoTile("Phone Support", "1800-TRUCKMATE",
-          icon: Icons.phone, iconColor: supportColor),
-      _buildInfoTile("Email Support", "support@truckmate.app",
-          icon: Icons.email, iconColor: supportColor),
+
+      // Phone Support clickable
+      InkWell(
+        onTap: () => _launchURL("tel:+919629452526"),
+        child: _buildInfoTile(
+          "Phone Support",
+          "9629452526",
+          icon: Icons.phone,
+          iconColor: supportColor,
+        ),
+      ),
+
+      const SizedBox(height: 8),
+
+      // Email Support clickable
+      InkWell(
+        onTap: () => _launchURL("mailto:cogo@gmail.com"),
+        child: _buildInfoTile(
+          "Email Support",
+          "cogo@gmail.com",
+          icon: Icons.email,
+          iconColor: supportColor,
+        ),
+      ),
     ],
   ),
 ),
-
-                          const SizedBox(height: 16),
+const SizedBox(height: 16),
 
                           // Action Buttons
                           SizedBox(

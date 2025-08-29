@@ -627,9 +627,29 @@ class _DriverJobsPageState extends State<DriverJobsPage> {
       ),
     );
   }
+Widget _buildJobThumbnail(Map<String, dynamic> job) {
+  // Check if job has lorryPhotos and the first photo exists
+  final hasPhotos = job['lorryPhotos'] != null && 
+                   job['lorryPhotos'] is List && 
+                   job['lorryPhotos'].isNotEmpty &&
+                   job['lorryPhotos'][0] != null &&
+                   job['lorryPhotos'][0].toString().isNotEmpty;
 
-  Widget _buildJobThumbnail(Map<String, dynamic> job) {
-    // ... (keep existing thumbnail logic)
+  if (hasPhotos) {
+    // Use the first photo as thumbnail
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        image: DecorationImage(
+          image: NetworkImage(job['lorryPhotos'][0].toString()),
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  } else {
+    // Fallback to icon if no photos
     return Container(
       width: 60,
       height: 60,
@@ -640,6 +660,7 @@ class _DriverJobsPageState extends State<DriverJobsPage> {
       child: const Icon(Icons.local_shipping, size: 32, color: Colors.grey),
     );
   }
+}
 
   Widget _buildInfoRow(IconData icon, String text) {
     return Row(

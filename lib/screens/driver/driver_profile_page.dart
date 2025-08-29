@@ -619,7 +619,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                       ),
                     ),
                     subtitle: const Text(
-                      "1800-TRUCKMATE",
+                      "+91 9629452526",
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -627,7 +627,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                       ),
                     ),
                     trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-                    onTap: () => _launchURL("tel:1800TRUCKMATE"),
+                    onTap: () => _launchURL("tel:9629452526"),
                   ),
                   Divider(height: 1, color: Colors.grey[200]),
                   ListTile(
@@ -644,7 +644,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                       ),
                     ),
                     subtitle: const Text(
-                      "support@truckmate.app",
+                      "cogo2025@gamil.com",
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -652,7 +652,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                       ),
                     ),
                     trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-                    onTap: () => _launchURL("mailto:support@truckmate.app"),
+                    onTap: () => _launchURL("mailto:cogo2025@gmail.com"),
                   ),
                 ],
               ),

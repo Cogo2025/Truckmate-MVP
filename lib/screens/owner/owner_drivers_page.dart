@@ -309,186 +309,205 @@ void _clearAllFilters() {
     }
   }
 
-  Widget _buildFilterDialog() {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 4,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              spreadRadius: 5,
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.filter_alt, color: Theme.of(context).primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  'Filter Drivers',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).primaryColor,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // Location Filter
-            Text(
-              'Location',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                border: Border.all(color: Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: DropdownButtonFormField<String?>(
-                value: selectedLocation,
-                decoration: InputDecoration(
-                  labelText: 'Select Location',
-                  floatingLabelBehavior: FloatingLabelBehavior.never,
-                  prefixIcon: Icon(Icons.location_on, color: Colors.grey.shade600),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                ),
-                dropdownColor: Colors.white,
-                items: [
-                  DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text(
-                      'All Locations',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  ),
-                  ...locations.map((location) {
-                    return DropdownMenuItem<String?>(
-                      value: location,
-                      child: Text(
-                        location,
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    );
-                  }).toList(),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    selectedLocation = value;
-                  });
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Truck Type Filter
-            Text(
-              'Truck Type',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                border: Border.all(color: Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: DropdownButtonFormField<String?>(
-                value: selectedTruckType,
-                decoration: InputDecoration(
-                  labelText: 'Select Truck Type',
-                  floatingLabelBehavior: FloatingLabelBehavior.never,
-                  prefixIcon: Icon(Icons.local_shipping, color: Colors.grey.shade600),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                ),
-                dropdownColor: Colors.white,
-                items: [
-                  DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text(
-                      'All Truck Types',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  ),
-                  ...truckTypes.map((type) {
-                    return DropdownMenuItem<String?>(
-                      value: type,
-                      child: Text(
-                        type,
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    );
-                  }).toList(),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    selectedTruckType = value;
-                  });
-                },
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Action Buttons
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton(
-                  onPressed: _clearAllFilters, // Use the new method
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.grey.shade600,
-                  ),
-                  child: const Text('Clear All'),
-                ),
-                Row(
-                  children: [
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        setState(() => isLoading = true);
-                        fetchAvailableDrivers();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).primaryColor,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                      child: const Text('Apply Filters'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+Widget _buildFilterDialog() {
+  // Define the lists locally for the filter dialog
+  final List<String> tamilNaduDistricts = [
+    "Ariyalur", "Chengalpattu", "Chennai", "Coimbatore",
+    "Cuddalore", "Dharmapuri", "Dindigul", "Erode",
+    "Kallakurichi", "Kancheepuram", "Karur",
+    "Krishnagiri", "Madurai", "Mayiladuthurai", "Nagapattinam",
+    "Namakkal", "Nilgiris", "Perambalur", "Pudukkottai",
+    "Ramanathapuram", "Ranipet", "Salem", "Sivaganga",
+    "Tenkasi", "Thanjavur", "Theni", "Thoothukudi",
+    "Tiruchirappalli", "Tirunelveli", "Tirupathur", "Tiruppur",
+    "Tiruvallur", "Tiruvannamalai", "Tiruvarur", "Vellore",
+    "Viluppuram", "Virudhunagar"
+  ];
 
+  final List<String> allTruckTypes = [
+    "Body Vehicle", "Trailer", "Tipper", "Gas Tanker",
+    "Wind Mill", "Concrete Mixer", "Petrol Tank",
+    "Container", "Bulker"
+  ];
+
+  return Dialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    elevation: 4,
+    child: Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            spreadRadius: 5,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.filter_alt, color: Theme.of(context).primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Filter Drivers',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).primaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Location Filter
+          Text(
+            'Location',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: DropdownButtonFormField<String?>(
+              value: selectedLocation,
+              decoration: InputDecoration(
+                labelText: 'Select Location',
+                floatingLabelBehavior: FloatingLabelBehavior.never,
+                prefixIcon: Icon(Icons.location_on, color: Colors.grey.shade600),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+              ),
+              dropdownColor: Colors.white,
+              items: [
+                DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text(
+                    'All Locations',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ),
+                ...tamilNaduDistricts.map((location) {
+                  return DropdownMenuItem<String?>(
+                    value: location,
+                    child: Text(
+                      location,
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                  );
+                }).toList(),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  selectedLocation = value;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Truck Type Filter
+          Text(
+            'Truck Type',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: DropdownButtonFormField<String?>(
+              value: selectedTruckType,
+              decoration: InputDecoration(
+                labelText: 'Select Truck Type',
+                floatingLabelBehavior: FloatingLabelBehavior.never,
+                prefixIcon: Icon(Icons.local_shipping, color: Colors.grey.shade600),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+              ),
+              dropdownColor: Colors.white,
+              items: [
+                DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text(
+                    'All Truck Types',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ),
+                ...allTruckTypes.map((type) {
+                  return DropdownMenuItem<String?>(
+                    value: type,
+                    child: Text(
+                      type,
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                  );
+                }).toList(),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  selectedTruckType = value;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Action Buttons
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton(
+                onPressed: _clearAllFilters,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey.shade600,
+                ),
+                child: const Text('Clear All'),
+              ),
+              Row(
+                children: [
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() => isLoading = true);
+                      fetchAvailableDrivers();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    child: const Text('Apply Filters'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
   Widget _buildDriverCard(Map driver) {
     final theme = Theme.of(context);
     return Card(
