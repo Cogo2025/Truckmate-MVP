@@ -66,6 +66,40 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
     }
   }
 
+  Future<void> _resubmitVerification() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    
+    if (token == null) {
+      _showError("Authentication token missing");
+      return;
+    }
+
+    _showSuccess("Resubmitting verification request...");
+
+    final response = await http.post(
+      Uri.parse(ApiConfig.resubmitVerification),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (response.statusCode == 201) {
+      _showSuccess("Verification resubmitted successfully!");
+      // Reload profile data to update status
+      _loadProfileData();
+    } else {
+      final data = jsonDecode(response.body);
+      _showError(data['error'] ?? 'Failed to resubmit verification');
+    }
+  } catch (e) {
+    _showError("Error resubmitting verification: ${e.toString()}");
+  }
+}
+
+
   Future<void> _loadProfileData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -407,62 +441,74 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
       ],
     );
   }
+Widget _buildVerificationStatusCard() {
+  if (!_isProfileComplete) return const SizedBox.shrink();
 
-  Widget _buildVerificationStatusCard() {
-    if (!_isProfileComplete) return const SizedBox.shrink();
-
-    final status = _profileData?['verificationStatus'] ?? 'pending';
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _getVerificationColor(status).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _getVerificationColor(status),
-        ),
+  final status = _profileData?['verificationStatus'] ?? 'pending';
+  final rejectionReason = _profileData?['rejectionReason'] ?? '';
+  
+  return Container(
+    margin: const EdgeInsets.symmetric(vertical: 16),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: _getVerificationColor(status).withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: _getVerificationColor(status),
       ),
-      child: Row(
-        children: [
-          Icon(
-            _getVerificationIcon(status),
-            color: _getVerificationColor(status),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Verification Status: ${status.toString().toUpperCase()}",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: _getVerificationColor(status),
-                  ),
-                ),
-                if (status == 'pending')
-                  const Text(
-                    "Your profile is under admin review",
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                if (status == 'approved')
-                  const Text(
-                    "You can now access job opportunities",
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                if (status == 'rejected')
-                  Text(
-                    "Reason: ${_profileData?['rejectionReason'] ?? 'Please update your profile'}",
-                    style: const TextStyle(fontSize: 12, color: Colors.red),
-                  ),
-              ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              _getVerificationIcon(status),
+              color: _getVerificationColor(status),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                "Verification Status: ${status.toString().toUpperCase()}",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: _getVerificationColor(status),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (status == 'pending')
+          const Text(
+            "Your profile is under admin review",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        if (status == 'approved')
+          const Text(
+            "You can now access job opportunities",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        if (status == 'rejected') ...[
+          if (rejectionReason.isNotEmpty)
+            Text(
+              "Reason: $rejectionReason",
+              style: const TextStyle(fontSize: 12, color: Colors.red),
+            ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: _resubmitVerification,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Resubmit for Verification"),
           ),
         ],
-      ),
-    );
-  }
-
+      ],
+    ),
+  );
+}
   // *** Availability toggle widget for approved drivers ***
   Widget _buildAvailabilityToggle() {
     final status = _profileData?['verificationStatus'] ?? 'pending';

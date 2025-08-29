@@ -499,11 +499,16 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     _checkForCriticalChanges();
 
     // Show re-verification dialog if needed
-    if (_needsReVerification) {
-      _showReVerificationDialog();
-    } else {
-      _performSubmit();
-    }
+    if (widget.profileData['verificationStatus'] == 'rejected') {
+  // Show message that verification will be resubmitted
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text("Profile updated and verification resubmitted!"),
+      backgroundColor: Colors.green,
+    ),
+  );
+}
+    
   }
 
   Future<void> _performSubmit() async {

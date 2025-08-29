@@ -1,6 +1,6 @@
 class ApiConfig {
   // Base URL configuration
-  static const String baseUrl = "https://truckmate-servermvp.onrender.com";
+  static const String baseUrl = "http://192.168.85.244:5000"; // Local development server
   // Health check endpoint
   static const String healthCheck = '$baseUrl/health';
   
@@ -10,7 +10,7 @@ class ApiConfig {
   
   // Profile endpoints
   static const String ownerProfile = '$baseUrl/api/profile/owner';
-  
+  static const String resubmitVerification = '$baseUrl/api/verification/resubmit';
   static const String updateUser = '$baseUrl/api/profile/user';
    static const String driverProfile = '$baseUrl/api/profile/driver';
   static const String driverProfileCompletion = '$baseUrl/api/profile/driver/check-completion';
