@@ -1,6 +1,6 @@
 class ApiConfig {
   // Base URL configuration
-  static const String baseUrl = "https://192.168.85.244:5000";
+  static const String baseUrl = "https://truckmate-servermvp.onrender.com";
   // Health check endpoint
   static const String healthCheck = '$baseUrl/health';
   
