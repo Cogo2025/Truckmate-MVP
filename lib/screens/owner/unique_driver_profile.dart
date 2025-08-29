@@ -3,8 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../services/auth_service.dart';
 import '../../api_config.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';  // Add this import
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UniqueDriverProfile extends StatefulWidget {
   final Map driver;
@@ -20,32 +19,78 @@ class UniqueDriverProfile extends StatefulWidget {
 class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
   bool isLiked = false;
   bool isLoading = true;
+  bool _showingImage = false;
+  bool _hasSeenImageForThisDriver = false;
   bool _showFullPhone = false;
-  bool _showingImage = false; // Track if we're showing the image
-  bool _hasSeenImageBefore = false; // Track if user has seen the image
-@override
+  
+  // Add ScrollController and GlobalKey
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _contactInfoKey = GlobalKey();
+
+  @override
   void initState() {
     super.initState();
     _checkIfDriverLiked();
-    _checkIfImageSeenBefore();
+    _checkIfImageSeenForThisDriver();
   }
 
-  // Check if user has seen the image before
-  Future<void> _checkIfImageSeenBefore() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _hasSeenImageBefore = prefs.getBool('hasSeenCallImage') ?? false;
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // Scroll to contact information section
+  void _scrollToContactInfo() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_contactInfoKey.currentContext != null) {
+        final box = _contactInfoKey.currentContext!.findRenderObject() as RenderBox;
+        final position = box.localToGlobal(Offset.zero);
+        final scrollPosition = position.dy - MediaQuery.of(context).padding.top - kToolbarHeight;
+        
+        _scrollController.animateTo(
+          scrollPosition,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
     });
   }
 
-  // Mark that user has seen the image
-  Future<void> _markImageAsSeen() async {
+  // Check if user has seen the image for THIS specific driver
+  Future<void> _checkIfImageSeenForThisDriver() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('hasSeenCallImage', true);
+    final driverId = widget.driver['id']?.toString();
+    if (driverId == null) return;
+    
+    final seenDrivers = prefs.getStringList('seenCallImageDrivers') ?? [];
     setState(() {
-      _hasSeenImageBefore = true;
+      _hasSeenImageForThisDriver = seenDrivers.contains(driverId);
+      // If user has seen image for this driver, show full phone immediately
+      if (_hasSeenImageForThisDriver) {
+        _showFullPhone = true;
+      }
     });
   }
+
+  // Mark that user has seen the image for THIS specific driver
+  Future<void> _markImageAsSeenForThisDriver() async {
+    final prefs = await SharedPreferences.getInstance();
+    final driverId = widget.driver['id']?.toString();
+    if (driverId == null) return;
+    
+    final seenDrivers = prefs.getStringList('seenCallImageDrivers') ?? [];
+    if (!seenDrivers.contains(driverId)) {
+      seenDrivers.add(driverId);
+      await prefs.setStringList('seenCallImageDrivers', seenDrivers);
+    }
+    
+    setState(() {
+      _hasSeenImageForThisDriver = true;
+      _showFullPhone = true; // Show full phone after seeing image
+    });
+  }
+
   Future<void> _checkIfDriverLiked() async {
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) {
@@ -131,86 +176,20 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     }
   }
 
-void _contactDriver() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).primaryColor,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(12),
-              topRight: Radius.circular(12),
-            ),
-          ),
-          child: const Text(
-            'Contact Driver',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 10),
-            const Text(
-              'You can contact this driver through the following methods:',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(Icons.phone, color: Colors.green),
-              title: const Text('Call Driver'),
-              subtitle: Text(_showFullPhone 
-                ? widget.driver['phone'] ?? 'N/A' 
-                : _getMaskedPhone()),
-              trailing: IconButton(
-                icon: Icon(
-                  _showFullPhone ? Icons.visibility_off : Icons.visibility,
-                  color: Theme.of(context).primaryColor,
-                ),
-                onPressed: () {
-                  setState(() {
-                    _showFullPhone = !_showFullPhone;
-                  });
-                  Navigator.pop(context);
-                  _contactDriver();
-                },
-              ),
-            ),
-            
-            const Text(
-              'Note: Please be professional and respectful when contacting drivers.',
-              style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton(
-  onPressed: () {
-    Navigator.pop(context);
-    // Phone launcher removed; no action on call now
-  },
-  style: ElevatedButton.styleFrom(
-    backgroundColor: Colors.green,
-  ),
-  child: const Text('Call Now', style: TextStyle(color: Colors.white)),
-),
-        ],
-      ),
-    );
+  void _contactDriver() {
+    // Only show image if it's the first time for THIS driver
+    if (!_hasSeenImageForThisDriver) {
+      _showImage();
+    } else {
+      // If already seen image for this driver, just update the phone display and scroll to contact info
+      setState(() {
+        _showFullPhone = true;
+      });
+      _scrollToContactInfo();
+    }
   }
 
-  void _showImageAndCall() async {
+  void _showImage() async {
     // Show the image
     setState(() {
       _showingImage = true;
@@ -225,8 +204,8 @@ void _contactDriver() {
       ),
     );
     
-    // Mark that user has seen the image
-    await _markImageAsSeen();
+    // Mark that user has seen the image for THIS driver
+    await _markImageAsSeenForThisDriver();
     
     // Wait for 5 seconds
     await Future.delayed(const Duration(seconds: 5));
@@ -237,137 +216,31 @@ void _contactDriver() {
     // Reset the state
     setState(() {
       _showingImage = false;
+      _showFullPhone = true; // Unmask the phone number
     });
     
-    // Make the phone call
-    _makePhoneCall();
+    // Scroll to contact information after showing image
+    _scrollToContactInfo();
   }
 
-  // Method to make the actual phone call
-  void _makePhoneCall() async {
-    final phoneNumber = widget.driver['phone'];
-    if (phoneNumber == null || phoneNumber.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Phone number not available")),
-      );
-      return;
-    }
-    
-    final url = 'tel:$phoneNumber';
-    
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not launch $url')),
-      );
-    }
-  }
-
-  String _getMaskedPhone() {
+  String _getPhoneDisplay() {
     final phone = widget.driver['phone'] ?? '';
+    if (_showFullPhone || _hasSeenImageForThisDriver) {
+      return phone;
+    }
     if (phone.length <= 4) return phone;
     return '******${phone.substring(phone.length - 4)}';
   }
 
- 
-
-  void _hireDriver() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).primaryColor,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(12),
-              topRight: Radius.circular(12),
-            ),
-          ),
-          child: const Text(
-            'Hire Driver',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 10),
-            Text(
-              'Send hiring request to ${widget.driver['name']}?',
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 15),
-            const Text(
-              'This will notify the driver of your interest. You can discuss details directly once they accept your request.',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Driver Details:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.star, size: 16, color: Colors.amber),
-                const SizedBox(width: 5),
-                Text("Rating: ${widget.driver['rating'] ?? 'N/A'}"),
-              ],
-            ),
-            const SizedBox(height: 5),
-            Row(
-              children: [
-                const Icon(Icons.work, size: 16, color: Colors.blue),
-                const SizedBox(width: 5),
-                Text("Experience: ${widget.driver['experience'] ?? 'N/A'} years"),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Implement hire logic here
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Hiring request sent to ${widget.driver['name']}'),
-                  action: SnackBarAction(
-                    label: 'Undo',
-                    onPressed: () {
-                      // Undo hire request logic
-                    },
-                  ),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-            ),
-            child: const Text('Send Request', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
+  // Updated _buildProfileSection to accept key parameter
   Widget _buildProfileSection({
+    Key? key,
     required String title,
     required IconData icon,
     required List<Widget> children,
   }) {
     return Column(
+      key: key, // Pass the key to the Column
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -445,13 +318,15 @@ void _contactDriver() {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-     if (_showingImage) {
+    
+    if (_showingImage) {
       return Scaffold(
         body: Center(
           child: Image.asset('assets/images/banner1.jpg'), // Replace with your actual image path
         ),
       );
     }
+    
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.driver['name'] ?? 'Driver Profile'),
@@ -470,6 +345,7 @@ void _contactDriver() {
         ],
       ),
       body: SingleChildScrollView(
+        controller: _scrollController, // Add scroll controller
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -563,12 +439,13 @@ void _contactDriver() {
               ),
             ),
             const SizedBox(height: 32),
-            // Contact Information
+            // Contact Information - Add GlobalKey here
             _buildProfileSection(
+              key: _contactInfoKey, // Add key to contact info section
               title: 'Contact Information',
               icon: Icons.contact_phone,
               children: [
-                _buildProfileItem(Icons.phone, 'Phone', _getMaskedPhone()),
+                _buildProfileItem(Icons.phone, 'Phone', _getPhoneDisplay()),
                 _buildProfileItem(Icons.email, 'Email', widget.driver['email'] ?? 'N/A'),
                 _buildProfileItem(Icons.location_on, 'Location', widget.driver['location'] ?? 'N/A'),
               ],
@@ -644,41 +521,21 @@ void _contactDriver() {
               ),
             
             const SizedBox(height: 32),
-            // Action Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _contactDriver,
-                    icon: const Icon(Icons.phone),
-                    label: const Text('Contact Driver'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF5722),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+            // Contact Button Only (Hire Driver button removed)
+            Center(
+              child: ElevatedButton.icon(
+                onPressed: _contactDriver,
+                icon: const Icon(Icons.phone),
+                label: Text(_hasSeenImageForThisDriver ? 'View Phone Number' : 'Phone Number'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF5722),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _hireDriver,
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('Hire Driver'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 20),
           ],

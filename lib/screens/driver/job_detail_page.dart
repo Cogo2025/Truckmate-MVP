@@ -4,13 +4,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:truckmate_app/api_config.dart';
 import 'specific_owner_posts.dart';
-import 'package:carousel_slider/carousel_slider.dart'; // Add this dependency for better image gallery
-import 'package:animate_do/animate_do.dart'; // Add this for animations (optional, or use built-in animations)
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:animate_do/animate_do.dart';
 import 'package:truckmate_app/utils/image_utils.dart';
+import 'dart:async';
 
 // Enhanced Theme Colors
-const primaryColor = Color(0xFF1976D2); // Blue for logistics theme
-const accentColor = Color.fromARGB(255, 255, 0, 0); // Orange accent
+const primaryColor = Color(0xFF1976D2);
+const accentColor = Color.fromARGB(255, 255, 0, 0);
 const backgroundColor = Color(0xFFF5F5F5);
 const cardColor = Colors.white;
 const textColor = Colors.black87;
@@ -31,6 +32,9 @@ class _JobDetailPageState extends State<JobDetailPage> {
   bool isLiked = false;
   String? errorMessage;
   String? likeId;
+  bool _showingImage = false;
+  bool _showUnmaskedPhone = false;
+  Timer? _imageTimer;
 
   @override
   void initState() {
@@ -40,52 +44,72 @@ class _JobDetailPageState extends State<JobDetailPage> {
     _checkIfLiked();
   }
 
+  @override
+  void dispose() {
+    _imageTimer?.cancel();
+    super.dispose();
+  }
+
+  void _contactOwner() {
+    setState(() {
+      _showingImage = true;
+    });
+
+    // Show image for 5 seconds
+    _imageTimer = Timer(const Duration(seconds: 5), () {
+      setState(() {
+        _showingImage = false;
+        _showUnmaskedPhone = true;
+      });
+    });
+  }
+
   void _showFullScreenImage(int initialIndex) {
-  final List? photosBase64 = widget.job['lorryPhotosBase64'] as List?;
-  
-  showDialog(
-    context: context,
-    builder: (context) {
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(0),
-        child: Stack(
-          children: [
-            PageView.builder(
-              itemCount: photosBase64?.length ?? 0,
-              controller: PageController(initialPage: initialIndex),
-              itemBuilder: (context, index) {
-                final bytes = ImageUtils.decodeBase64Image(photosBase64![index] as String?);
-                
-                return InteractiveViewer(
-                  panEnabled: true,
-                  minScale: 0.5,
-                  maxScale: 3.0,
-                  child: bytes != null
-                    ? Image.memory(bytes, fit: BoxFit.contain)
-                    : Container(
-                        color: Colors.grey[300],
-                        child: const Center(
-                          child: Text('Failed to load image', style: TextStyle(color: Colors.white)),
+    final List? photosBase64 = widget.job['lorryPhotosBase64'] as List?;
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(0),
+          child: Stack(
+            children: [
+              PageView.builder(
+                itemCount: photosBase64?.length ?? 0,
+                controller: PageController(initialPage: initialIndex),
+                itemBuilder: (context, index) {
+                  final bytes = ImageUtils.decodeBase64Image(photosBase64![index] as String?);
+                  
+                  return InteractiveViewer(
+                    panEnabled: true,
+                    minScale: 0.5,
+                    maxScale: 3.0,
+                    child: bytes != null
+                      ? Image.memory(bytes, fit: BoxFit.contain)
+                      : Container(
+                          color: Colors.grey[300],
+                          child: const Center(
+                            child: Text('Failed to load image', style: TextStyle(color: Colors.white)),
+                          ),
                         ),
-                      ),
-                );
-              },
-            ),
-            Positioned(
-              top: 40,
-              right: 20,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                onPressed: () => Navigator.of(context).pop(),
+                  );
+                },
               ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
+              Positioned(
+                top: 40,
+                right: 20,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> _fetchJobDetails() async {
     try {
@@ -406,10 +430,14 @@ class _JobDetailPageState extends State<JobDetailPage> {
           if (widget.job['dutyType'] != null)
             _buildDetailRow(Icons.schedule, "Duty Type", widget.job['dutyType']),
 
-          if (widget.job['variant'] != null && widget.job['variant']['type'] != null)
+          if (widget.job['variant'] != null && 
+              widget.job['variant']['type'] != null && 
+              widget.job['variant']['type'].toString().isNotEmpty)
             _buildDetailRow(Icons.category, "Variant", widget.job['variant']['type']),
 
-          if (widget.job['variant'] != null && widget.job['variant']['wheelsOrFeet'] != null)
+          if (widget.job['variant'] != null && 
+              widget.job['variant']['wheelsOrFeet'] != null && 
+              widget.job['variant']['wheelsOrFeet'].toString().isNotEmpty)
             _buildDetailRow(Icons.settings, "Configuration", widget.job['variant']['wheelsOrFeet']),
         ],
       ),
@@ -450,9 +478,174 @@ class _JobDetailPageState extends State<JobDetailPage> {
   }
 
   Widget _buildImageGallery() {
-  if (widget.job['lorryPhotos'] != null && widget.job['lorryPhotos'].isNotEmpty) {
+    // Try Base64 first
+    final List? photosBase64 = widget.job['lorryPhotosBase64'] as List?;
+    
+    if (photosBase64 != null && photosBase64.isNotEmpty) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                "Vehicle Photos",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+            ),
+            CarouselSlider.builder(
+              itemCount: photosBase64.length,
+              itemBuilder: (context, index, realIndex) {
+                final bytes = ImageUtils.decodeBase64Image(photosBase64[index] as String?);
+                
+                return GestureDetector(
+                  onTap: () => _showFullScreenImage(index),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: bytes != null
+                      ? Image.memory(
+                          bytes,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                        )
+                      : Container(
+                          color: Colors.grey[200],
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.broken_image, size: 40, color: subTextColor),
+                              SizedBox(height: 8),
+                              Text('Failed to load image', style: TextStyle(color: subTextColor)),
+                            ],
+                          ),
+                        ),
+                  ),
+                );
+              },
+              options: CarouselOptions(
+                height: 200,
+                viewportFraction: 0.8,
+                enlargeCenterPage: true,
+                enableInfiniteScroll: false,
+                initialPage: 0,
+                autoPlay: true,
+                autoPlayInterval: const Duration(seconds: 3),
+                autoPlayAnimationDuration: const Duration(milliseconds: 800),
+                autoPlayCurve: Curves.fastOutSlowIn,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
+    }
+    
+    // Fallback to URL-based images if Base64 not available
+    if (widget.job['lorryPhotos'] != null && widget.job['lorryPhotos'].isNotEmpty) {
+      final List<String> photoUrls = (widget.job['lorryPhotos'] as List).cast<String>();
+      
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                "Vehicle Photos",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+            ),
+            CarouselSlider.builder(
+              itemCount: photoUrls.length,
+              itemBuilder: (context, index, realIndex) {
+                return GestureDetector(
+                  onTap: () => _showFullScreenImage(index),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      photoUrls[index],
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[200],
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.broken_image, size: 40, color: subTextColor),
+                              SizedBox(height: 8),
+                              Text('Failed to load image', style: TextStyle(color: subTextColor)),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                );
+              },
+              options: CarouselOptions(
+                height: 200,
+                viewportFraction: 0.8,
+                enlargeCenterPage: true,
+                enableInfiniteScroll: false,
+                initialPage: 0,
+                autoPlay: true,
+                autoPlayInterval: const Duration(seconds: 3),
+                autoPlayAnimationDuration: const Duration(milliseconds: 800),
+                autoPlayCurve: Curves.fastOutSlowIn,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
+    }
+
+    return Container();
+  }
+
+  Widget _buildContactButton() {
+    final phone = widget.job['phone']?.toString() ?? '';
+    final maskedPhone = phone.length > 4 
+        ? 'XXXXX${phone.substring(phone.length - 4)}'
+        : 'XXXXX';
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(12),
@@ -466,77 +659,46 @@ class _JobDetailPageState extends State<JobDetailPage> {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              "Vehicle Photos",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: textColor,
-              ),
-            ),
-          ),
-          CarouselSlider.builder(
-            itemCount: widget.job['lorryPhotos'].length,
-            itemBuilder: (context, index, realIndex) {
-              return GestureDetector(
-                onTap: () => _showFullScreenImage(index),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    widget.job['lorryPhotos'][index],
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Container(
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    },
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: Colors.grey[200],
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image, size: 40, color: subTextColor),
-                          SizedBox(height: 8),
-                          Text('Failed to load image', style: TextStyle(color: subTextColor)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-            options: CarouselOptions(
-              height: 200,
-              viewportFraction: 0.8,
-              enlargeCenterPage: true,
-              enableInfiniteScroll: false,
-              initialPage: 0,
-              autoPlay: true,
-              autoPlayInterval: const Duration(seconds: 3),
-              autoPlayAnimationDuration: const Duration(milliseconds: 800),
-              autoPlayCurve: Curves.fastOutSlowIn,
+          Text(
+            _showUnmaskedPhone ? phone : maskedPhone,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: _showUnmaskedPhone ? primaryColor : textColor,
             ),
           ),
           const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _showUnmaskedPhone ? null : _contactOwner,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryColor,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              "Contact Owner",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  return Container();
-}
-
   @override
   Widget build(BuildContext context) {
+    if (_showingImage) {
+      return Scaffold(
+        body: Center(
+          child: Image.asset('assets/images/banner1.jpg', fit: BoxFit.cover),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
@@ -622,6 +784,12 @@ class _JobDetailPageState extends State<JobDetailPage> {
                         FadeInUp(
                           duration: const Duration(milliseconds: 700),
                           child: _buildJobDetails(),
+                        ),
+                        const SizedBox(height: 16),
+                        // Contact Owner button
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 800),
+                          child: _buildContactButton(),
                         ),
                       ],
                     ),

@@ -9,7 +9,7 @@ import 'package:truckmate_app/screens/welcome_page.dart';
 import 'package:truckmate_app/services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart'; // *** NEW: Added for URL launching ***
+import 'package:url_launcher/url_launcher.dart';
 import 'driver_profile_setup.dart';
 
 class DriverProfilePage extends StatefulWidget {
@@ -34,6 +34,19 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
   // *** Availability toggle state ***
   bool _isAvailable = false;
   bool _isUpdatingAvailability = false;
+
+  // Enhanced Material Design Colors matching owner side
+  static const Color primaryColor = Color(0xFF00BCD4); // Cyan
+  static const Color secondaryColor = Color(0xFF1976D2); // Blue
+  static const Color accentColor = Color(0xFFFF6F00); // Orange
+  static const Color errorColor = Color(0xFFD32F2F); // Red
+  static const Color successColor = Color(0xFF26C6DA); // Light cyan
+  static const Color warningColor = Color(0xFFF57C00); // Warning Orange
+  static const Color cardColor = Color(0xFFF8F9FA);
+  static const Color surfaceColor = Color(0xFFF5F7FA);
+  final Color quickActionColor = Colors.teal;
+  final Color buttonColor = Colors.deepPurple;
+  final Color supportColor = const Color.fromARGB(255, 25, 219, 164);
 
   @override
   void initState() {
@@ -98,7 +111,6 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
     _showError("Error resubmitting verification: ${e.toString()}");
   }
 }
-
 
   Future<void> _loadProfileData() async {
     try {
@@ -324,28 +336,90 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
     }
   }
 
-  Widget _buildInfoTile(String label, String value, {bool canCopy = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "$label: ",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: Colors.grey[700],
-            ),
+  // Build gradient card widget matching owner side
+  Widget _buildGradientCard({
+    required Widget child,
+    Color? startColor,
+    Color? endColor,
+    EdgeInsetsGeometry? padding,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            startColor ?? Colors.white,
+            endColor ?? cardColor,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: (startColor ?? primaryColor).withOpacity(0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                color: value == 'N/A' ? Colors.grey : Colors.black,
-                fontStyle: value == 'N/A' ? FontStyle.italic : FontStyle.normal,
+        ],
+      ),
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(20),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildInfoTile(String label, String value, {IconData? icon, Color? iconColor, bool canCopy = false}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (iconColor ?? primaryColor).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: Icon(
+                icon,
+                color: iconColor ?? primaryColor,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[600],
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: value == 'N/A' ? Colors.grey : Colors.black87,
+                    fontStyle: value == 'N/A' ? FontStyle.italic : FontStyle.normal,
+                  ),
+                ),
+              ],
             ),
           ),
           if (canCopy && value != 'N/A')
@@ -356,6 +430,48 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
                 _showSuccess("Copied to clipboard!");
               },
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoSection(String title, List<Widget> children, {IconData? titleIcon, Color? titleColor}) {
+    return _buildGradientCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (titleIcon != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: (titleColor ?? primaryColor).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    titleIcon,
+                    color: titleColor ?? primaryColor,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: titleColor ?? primaryColor,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...children,
         ],
       ),
     );
@@ -441,74 +557,69 @@ class _DriverProfilePageState extends State<DriverProfilePage> with SingleTicker
       ],
     );
   }
-Widget _buildVerificationStatusCard() {
-  if (!_isProfileComplete) return const SizedBox.shrink();
 
-  final status = _profileData?['verificationStatus'] ?? 'pending';
-  final rejectionReason = _profileData?['rejectionReason'] ?? '';
-  
-  return Container(
-    margin: const EdgeInsets.symmetric(vertical: 16),
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: _getVerificationColor(status).withOpacity(0.1),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(
-        color: _getVerificationColor(status),
-      ),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(
-              _getVerificationIcon(status),
-              color: _getVerificationColor(status),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                "Verification Status: ${status.toString().toUpperCase()}",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: _getVerificationColor(status),
+  Widget _buildVerificationStatusCard() {
+    if (!_isProfileComplete) return const SizedBox.shrink();
+
+    final status = _profileData?['verificationStatus'] ?? 'pending';
+    final rejectionReason = _profileData?['rejectionReason'] ?? '';
+    
+    return _buildGradientCard(
+      startColor: _getVerificationColor(status).withOpacity(0.1),
+      endColor: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _getVerificationIcon(status),
+                color: _getVerificationColor(status),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  "Verification Status: ${status.toString().toUpperCase()}",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _getVerificationColor(status),
+                  ),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (status == 'pending')
+            const Text(
+              "Your profile is under admin review",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          if (status == 'approved')
+            const Text(
+              "You can now access job opportunities",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          if (status == 'rejected') ...[
+            if (rejectionReason.isNotEmpty)
+              Text(
+                "Reason: $rejectionReason",
+                style: const TextStyle(fontSize: 12, color: Colors.red),
+              ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _resubmitVerification,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("Resubmit for Verification"),
             ),
           ],
-        ),
-        const SizedBox(height: 8),
-        if (status == 'pending')
-          const Text(
-            "Your profile is under admin review",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-        if (status == 'approved')
-          const Text(
-            "You can now access job opportunities",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-        if (status == 'rejected') ...[
-          if (rejectionReason.isNotEmpty)
-            Text(
-              "Reason: $rejectionReason",
-              style: const TextStyle(fontSize: 12, color: Colors.red),
-            ),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: _resubmitVerification,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text("Resubmit for Verification"),
-          ),
         ],
-      ],
-    ),
-  );
-}
+      ),
+    );
+  }
+
   // *** Availability toggle widget for approved drivers ***
   Widget _buildAvailabilityToggle() {
     final status = _profileData?['verificationStatus'] ?? 'pending';
@@ -518,14 +629,9 @@ Widget _buildVerificationStatusCard() {
       return const SizedBox.shrink();
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue[200]!),
-      ),
+    return _buildGradientCard(
+      startColor: Colors.blue[50],
+      endColor: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -599,111 +705,170 @@ Widget _buildVerificationStatusCard() {
 
   // *** NEW: Support & Help Card ***
   Widget _buildSupportHelpCard() {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.teal[50],
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.teal[100]!),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.teal,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.support_agent_rounded,
-                    color: Colors.white,
-                    size: 24,
-                  ),
+    return _buildGradientCard(
+      startColor: Colors.teal[50],
+      endColor: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal,
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  "Support & Help",
-                  style: TextStyle(
-                    color: Colors.teal[700],
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
+                child: const Icon(
+                  Icons.support_agent_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                "Support & Help",
+                style: TextStyle(
+                  color: Colors.teal[700],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.teal[100],
+                    child: Icon(Icons.phone, color: Colors.teal[700]),
                   ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.teal[100],
-                      child: Icon(Icons.phone, color: Colors.teal[700]),
+                  title: Text(
+                    "Phone Support",
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
                     ),
-                    title: Text(
-                      "Phone Support",
-                      style: TextStyle(
-                        color: Colors.grey[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      "+91 9629452526",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-                    onTap: () => _launchURL("tel:9629452526"),
                   ),
-                  Divider(height: 1, color: Colors.grey[200]),
-                  ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.teal[100],
-                      child: Icon(Icons.email_rounded, color: Colors.teal[700]),
+                  subtitle: const Text(
+                    "+91 9629452526",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.black87,
                     ),
-                    title: Text(
-                      "Email Support",
-                      style: TextStyle(
-                        color: Colors.grey[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      "cogo2025@gamil.com",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-                    onTap: () => _launchURL("mailto:cogo2025@gmail.com"),
                   ),
-                ],
-              ),
+                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+                  onTap: () => _launchURL("tel:9629452526"),
+                ),
+                Divider(height: 1, color: Colors.grey[200]),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.teal[100],
+                    child: Icon(Icons.email_rounded, color: Colors.teal[700]),
+                  ),
+                  title: Text(
+                    "Email Support",
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    "cogo2025@gamil.com",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+                  onTap: () => _launchURL("mailto:cogo2025@gmail.com"),
+                ),
+              ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileAvatar() {
+    String? profilePhoto = _profileData?['profilePhoto'];
+    String? userPhotoUrl = _profileData?['userPhotoUrl'];
+    
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(4),
+      child: CircleAvatar(
+        radius: 65,
+        backgroundColor: Colors.white,
+        child: CircleAvatar(
+          radius: 60,
+          backgroundColor: Colors.grey[100],
+          child: ClipOval(
+            child: profilePhoto != null && profilePhoto.isNotEmpty
+                ? Image.network(
+                    profilePhoto,
+                    height: 120,
+                    width: 120,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      if (userPhotoUrl != null && userPhotoUrl.isNotEmpty) {
+                        return Image.network(
+                          userPhotoUrl,
+                          height: 120,
+                          width: 120,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(Icons.person, size: 60, color: Colors.grey[600]);
+                          },
+                        );
+                      }
+                      return Icon(Icons.person, size: 60, color: Colors.grey);
+                    },
+                  )
+                : userPhotoUrl != null && userPhotoUrl.isNotEmpty
+                    ? Image.network(
+                        userPhotoUrl,
+                        height: 120,
+                        width: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(Icons.person, size: 60, color: Colors.grey);
+                        },
+                      )
+                    : Icon(Icons.person, size: 60, color: Colors.grey),
+          ),
         ),
       ),
     );
@@ -712,69 +877,203 @@ Widget _buildVerificationStatusCard() {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: surfaceColor,
       appBar: AppBar(
-        title: const Text('Driver Profile'),
+        title: Text(
+          'Driver Profile',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+            color: Colors.white,
+          ),
+        ),
+        automaticallyImplyLeading: false,
+        backgroundColor: primaryColor,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         actions: [
           if (_isProfileComplete && !_isLoggingOut)
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: _navigateToEditProfile,
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.white),
+                ),
+                onPressed: _navigateToEditProfile,
+                tooltip: "Edit Profile",
+              ),
             ),
           if (!_isLoggingOut)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadProfileData,
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.refresh, color: Colors.white),
+                ),
+                onPressed: _loadProfileData,
+                tooltip: "Refresh",
+              ),
             ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [surfaceColor, Colors.white],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation(primaryColor),
+                      strokeWidth: 3,
+                    ),
+                    SizedBox(height: 20),
+                    Text(
+                      "Loading your profile...",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _errorMessage!,
-                        style: const TextStyle(color: Colors.red, fontSize: 16),
-                        textAlign: TextAlign.center,
+              ? Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [surfaceColor, Colors.white],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: errorColor.withOpacity(0.1),
+                            blurRadius: 20,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadProfileData,
-                        child: const Text("Retry"),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 64,
+                            color: errorColor,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed: _loadProfileData,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text("Retry"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 )
               : FadeTransition(
                   opacity: _fadeAnimation,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [surfaceColor, Colors.white],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
                     child: ListView(
+                      padding: const EdgeInsets.all(20),
                       children: [
                         // Profile Header
                         Center(
                           child: Column(
                             children: [
-                              CircleAvatar(
-                                radius: 50,
-                                backgroundImage: _profileData!['profilePhoto'] != null && _profileData!['profilePhoto'].isNotEmpty
-                                    ? NetworkImage(_profileData!['profilePhoto'])
-                                    : (_profileData?['userPhotoUrl'] != null && _profileData!['userPhotoUrl'].isNotEmpty
-                                        ? NetworkImage(_profileData!['userPhotoUrl'])
-                                        : null),
-                                child: (_profileData!['profilePhoto'] == null || _profileData!['profilePhoto'].isEmpty) &&
-                                        (_profileData?['userPhotoUrl'] == null || _profileData!['userPhotoUrl'].isEmpty)
-                                    ? const Icon(Icons.person, size: 40)
-                                    : null,
-                              ),
-                              const SizedBox(height: 16),
+                              _buildProfileAvatar(),
+                              const SizedBox(height: 12),
                               Text(
                                 _profileData?['userName'] ?? _profileData?['name'] ?? 'Unknown',
                                 style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Text(
+                                  "Professional Driver",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -790,40 +1089,38 @@ Widget _buildVerificationStatusCard() {
 
                         // Show setup button if profile not complete
                         if (!_isProfileComplete) ...[
-                          Card(
-                            color: Colors.blue[50],
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                children: [
-                                  const Icon(Icons.info_outline, color: Colors.blue, size: 48),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Profile Setup Required',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.blue,
-                                    ),
+                          _buildGradientCard(
+                            startColor: Colors.blue[50],
+                            endColor: Colors.white,
+                            child: Column(
+                              children: [
+                                const Icon(Icons.info_outline, color: Colors.blue, size: 48),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Profile Setup Required',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue,
                                   ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Complete your driver profile to access job opportunities and get verified by admin.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.grey),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Complete your driver profile to access job opportunities and get verified by admin.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: _navigateToProfileSetup,
+                                  icon: const Icon(Icons.edit),
+                                  label: const Text('Complete Profile Setup'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
                                   ),
-                                  const SizedBox(height: 16),
-                                  ElevatedButton.icon(
-                                    onPressed: _navigateToProfileSetup,
-                                    icon: const Icon(Icons.edit),
-                                    label: const Text('Complete Profile Setup'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.blue,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 24),
@@ -836,62 +1133,63 @@ Widget _buildVerificationStatusCard() {
                         _buildAvailabilityToggle(),
 
                         // Personal Information
-                        Text(
+                        _buildInfoSection(
                           "Personal Information",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue[700],
-                          ),
+                          [
+                            _buildInfoTile("Name", _profileData?['userName'] ?? _profileData?['name'] ?? "Not specified", 
+                                icon: Icons.person, iconColor: secondaryColor),
+                            _buildInfoTile("Phone", _profileData?['userPhone'] ?? "Not provided", 
+                                icon: Icons.phone, iconColor: successColor),
+                            _buildInfoTile("Gender", _profileData?['gender']?.toString() ?? "N/A", 
+                                icon: Icons.wc, iconColor: primaryColor),
+                            _buildInfoTile("Age", _profileData?['age']?.toString() ?? "N/A", 
+                                icon: Icons.cake, iconColor: accentColor),
+                            _buildInfoTile("Location", _profileData?['location']?.toString() ?? "N/A", 
+                                icon: Icons.location_on, iconColor: errorColor),
+                          ],
+                          titleIcon: Icons.account_circle,
+                          titleColor: secondaryColor,
                         ),
-                        const SizedBox(height: 16),
-                        _buildInfoTile("Name", _profileData?['userName'] ?? _profileData?['name'] ?? "Not specified"),
-                        _buildInfoTile("Phone", _profileData?['userPhone'] ?? "Not provided"),
-                        _buildInfoTile("Gender", _profileData?['gender']?.toString() ?? "N/A"),
-                        _buildInfoTile("Age", _profileData?['age']?.toString() ?? "N/A"),
-                        _buildInfoTile("Location", _profileData?['location']?.toString() ?? "N/A"),
-
-                        const SizedBox(height: 24),
 
                         // Driver Information
-                        Text(
+                        _buildInfoSection(
                           "Driver Information",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue[700],
-                          ),
+                          [
+                            _buildInfoTile("Experience", (_profileData?['experience']?.toString() ?? "N/A") + (_profileData?['experience'] != "N/A" ? " years" : ""), 
+                                icon: Icons.work_history, iconColor: successColor),
+                            _buildInfoTile("License Number", _profileData?['licenseNumber']?.toString() ?? "N/A", 
+                                icon: Icons.badge, iconColor: primaryColor, canCopy: true),
+                            _buildInfoTile(
+                              "License Expiry",
+                              _profileData?['licenseExpiryDate'] != null
+                                  ? DateFormat('yyyy-MM-dd').format(DateTime.parse(_profileData!['licenseExpiryDate']))
+                                  : "N/A",
+                              icon: Icons.calendar_today, 
+                              iconColor: warningColor
+                            ),
+                            _buildInfoTile(
+                              "Truck Types",
+                              _profileData?['knownTruckTypes'] != null && (_profileData!['knownTruckTypes'] as List).isNotEmpty
+                                  ? (_profileData!['knownTruckTypes'] as List).join(", ")
+                                  : "N/A",
+                              icon: Icons.local_shipping, 
+                              iconColor: accentColor
+                            ),
+                          ],
+                          titleIcon: Icons.drive_eta,
+                          titleColor: successColor,
                         ),
-                        const SizedBox(height: 16),
-                        _buildInfoTile("Experience", (_profileData?['experience']?.toString() ?? "N/A") + (_profileData?['experience'] != "N/A" ? " years" : "")),
-                        _buildInfoTile("License Number", _profileData?['licenseNumber']?.toString() ?? "N/A", canCopy: true),
-                        _buildInfoTile(
-                          "License Expiry",
-                          _profileData?['licenseExpiryDate'] != null
-                              ? DateFormat('yyyy-MM-dd').format(DateTime.parse(_profileData!['licenseExpiryDate']))
-                              : "N/A"
-                        ),
-                        _buildInfoTile(
-                          "Truck Types",
-                          _profileData?['knownTruckTypes'] != null && (_profileData!['knownTruckTypes'] as List).isNotEmpty
-                              ? (_profileData!['knownTruckTypes'] as List).join(", ")
-                              : "N/A"
-                        ),
-
-                        const SizedBox(height: 24),
 
                         // Photos
-                        Text(
+                        _buildInfoSection(
                           "Photos",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue[700],
-                          ),
+                          [
+                            _buildPhotoSection("License Front", _profileData?['licensePhotoFront']),
+                            _buildPhotoSection("License Back", _profileData?['licensePhotoBack']),
+                          ],
+                          titleIcon: Icons.photo_library,
+                          titleColor: accentColor,
                         ),
-                        const SizedBox(height: 16),
-                        _buildPhotoSection("License Front", _profileData?['licensePhotoFront']),
-                        _buildPhotoSection("License Back", _profileData?['licensePhotoBack']),
 
                         // *** NEW: Support & Help Card ***
                         _buildSupportHelpCard(),
@@ -906,15 +1204,11 @@ Widget _buildVerificationStatusCard() {
                             icon: const Icon(Icons.play_circle_fill_rounded, size: 24),
                             label: const Text("Watch Tutorial"),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
+                              backgroundColor: secondaryColor,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
-                              ),
-                              textStyle: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -922,35 +1216,34 @@ Widget _buildVerificationStatusCard() {
 
                         const SizedBox(height: 16),
 
-                        // *** NEW: Styled Logout Button ***
+                        // Logout Button
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
                             onPressed: _isLoggingOut ? null : _logout,
                             icon: _isLoggingOut
                                 ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation(Colors.white),
+                                    ),
                                   )
-                                : const Icon(Icons.logout_rounded, size: 24),
-                            label: Text(_isLoggingOut ? 'Logging out...' : 'Logout'),
+                                : const Icon(Icons.logout, size: 24),
+                            label: Text(_isLoggingOut ? "Logging out..." : "Logout"),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
+                              backgroundColor: _isLoggingOut ? Colors.grey : Colors.red,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              textStyle: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
                             ),
                           ),
                         ),
 
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 40),
                       ],
                     ),
                   ),
@@ -958,34 +1251,31 @@ Widget _buildVerificationStatusCard() {
     );
   }
 
-  Color _getVerificationColor(String? status) {
-    switch (status) {
-      case 'approved':
-        return Colors.green;
-      case 'pending':
-        return Colors.orange;
-      case 'rejected':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getVerificationIcon(String? status) {
+  IconData _getVerificationIcon(String status) {
     switch (status) {
       case 'approved':
         return Icons.verified;
-      case 'pending':
-        return Icons.pending;
       case 'rejected':
         return Icons.cancel;
+      case 'pending':
       default:
-        return Icons.info;
+        return Icons.pending;
+    }
+  }
+
+  Color _getVerificationColor(String status) {
+    switch (status) {
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
+      case 'pending':
+      default:
+        return Colors.orange;
     }
   }
 }
 
-// Keep your existing _FullscreenImageViewer class
 class _FullscreenImageViewer extends StatelessWidget {
   final String imageUrl;
 
@@ -996,15 +1286,14 @@ class _FullscreenImageViewer extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Center(
         child: InteractiveViewer(
           panEnabled: true,
           minScale: 0.5,
-          maxScale: 4.0,
+          maxScale: 4,
           child: Image.network(
             imageUrl,
             fit: BoxFit.contain,
@@ -1016,12 +1305,11 @@ class _FullscreenImageViewer extends StatelessWidget {
                       ? loadingProgress.cumulativeBytesLoaded /
                           loadingProgress.expectedTotalBytes!
                       : null,
-                  color: Colors.white,
                 ),
               );
             },
             errorBuilder: (context, error, stackTrace) => const Center(
-              child: Icon(Icons.error_outline, color: Colors.red, size: 50),
+              child: Icon(Icons.error_outline, color: Colors.red, size: 48),
             ),
           ),
         ),
