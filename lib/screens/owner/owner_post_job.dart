@@ -59,20 +59,12 @@ class _OwnerPostJobPageState extends State<OwnerPostJobPage>
   ];
 
   Map<String, List<String>> variantOptions = {
-    "Body Vehicle": ["Half", "Full"],
+    "Body Vehicle": ["6 wheels", "8 wheels", "12 wheels", "14 wheels", "16 wheels"],
     "Trailer": ["20 ft", "32 ft", "40 ft"],
     "Tipper": ["6 wheel", "10 wheel", "12 wheel", "16 wheel"],
     "Container": ["20 ft", "22 ft", "24 ft", "32 ft"],
   };
 
-  // Add wheels type options for Body Vehicle
-  Map<String, List<String>> wheelsOptions = {
-    "Body Vehicle": ["6 wheels", "8 wheels", "12 wheels", "14 wheels", "16 wheels"],
-    // Other types can have empty arrays or null
-    "Trailer": [],
-    "Tipper": [],
-    "Container": [],
-  };
 
   List<String> experienceOptions = ["1-3", "3-6", "6-9", "9+ years"];
   List<String> dutyTypes = ["12 hours", "24 hours"];
@@ -527,20 +519,6 @@ class _OwnerPostJobPageState extends State<OwnerPostJobPage>
       ),
     );
   }
-Widget _buildWheelsTypeDropdown() {
-    if (truckType != "Body Vehicle") return SizedBox.shrink();
-    
-    return _buildModernDropdown<String>(
-      label: "Wheels Type",
-      value: wheelsType.isEmpty ? null : wheelsType,
-      items: wheelsOptions[truckType] ?? [],
-      onChanged: (val) => setState(() => wheelsType = val ?? ''),
-      validator: (val) => truckType == "Body Vehicle" && (val == null || val.isEmpty) 
-          ? "Required for Body Vehicle" 
-          : null,
-      icon: Icons.directions_car,
-    );
-  }
 
   // Modern Submit Button
   Widget _buildModernSubmitButton() {
@@ -866,8 +844,6 @@ void _resetForm() {
                       icon: Icons.settings,
                     ),
                   
-                  // FIX: Added call to render the wheels type dropdown
-                  _buildWheelsTypeDropdown(),
 
                   _buildModernDropdown<String>(
                     label: "Source Location",

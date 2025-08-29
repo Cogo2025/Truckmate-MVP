@@ -492,73 +492,79 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     }
   }
 
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _submitForm() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    // Check for critical changes
-    _checkForCriticalChanges();
+  // Check for critical changes
+  _checkForCriticalChanges();
 
-    // Show re-verification dialog if needed
-    if (widget.profileData['verificationStatus'] == 'rejected') {
-  // Show message that verification will be resubmitted
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text("Profile updated and verification resubmitted!"),
-      backgroundColor: Colors.green,
-    ),
-  );
-}
-    
+  // Show re-verification dialog if needed
+  if (_needsReVerification) {
+    _showReVerificationDialog();
+  } else if (widget.profileData['verificationStatus'] == 'rejected') {
+    // If profile was rejected and user is updating, automatically resubmit
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Profile updated and verification resubmitted!"),
+        backgroundColor: Colors.green,
+      ),
+    );
+    _performSubmit();
+  } else {
+    // No re-verification needed and not rejected
+    _performSubmit();
   }
+}
 
   Future<void> _performSubmit() async {
+  setState(() {
+    _isSubmitting = true;
+    _errorMessage = null;
+  });
+
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('authToken');
+
+  if (token == null) {
     setState(() {
-      _isSubmitting = true;
-      _errorMessage = null;
+      _isSubmitting = false;
+      _errorMessage = "Authentication token missing. Please log in again.";
     });
-
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-
-    if (token == null) {
-      setState(() {
-        _isSubmitting = false;
-        _errorMessage = "Authentication token missing. Please log in again.";
-      });
-      return;
-    }
-
-    try {
-      // Update user info if name or phone changed
-      if (_nameController.text.trim() != (_originalName?.trim() ?? '') ||
-          _phoneController.text.trim() != (widget.userData['phone'] ?? '')) {
-        await _updateUserInfo(token);
-      }
-
-      // Update driver profile
-      await _updateDriverProfile(token);
-
-      if (mounted) {
-        if (_needsReVerification) {
-          _showSuccess('Profile updated successfully! Your changes are pending admin verification.');
-        } else {
-          _showSuccess('Profile updated successfully!');
-        }
-        
-        // Navigate back to profile page
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const DriverMainNavigation())
-        );
-      }
-    } catch (e) {
-      setState(() {
-        _isSubmitting = false;
-        _errorMessage = "Failed to update profile: ${e.toString()}";
-      });
-    }
+    return;
   }
 
+  try {
+    // Update user info if name or phone changed
+    if (_nameController.text.trim() != (_originalName?.trim() ?? '') ||
+        _phoneController.text.trim() != (widget.userData['phone'] ?? '')) {
+      await _updateUserInfo(token);
+    }
+
+    // Update driver profile
+    await _updateDriverProfile(token);
+
+    if (mounted) {
+      if (_needsReVerification) {
+        _showSuccess('Profile updated successfully! Your changes are pending admin verification.');
+      } else if (widget.profileData['verificationStatus'] == 'rejected') {
+        _showSuccess('Profile updated and verification resubmitted successfully!');
+      } else {
+        _showSuccess('Profile updated successfully!');
+      }
+      
+      // Navigate back to profile page
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DriverMainNavigation())
+      );
+    }
+  } catch (e) {
+    setState(() {
+      _isSubmitting = false;
+      _errorMessage = "Failed to update profile: ${e.toString()}";
+    });
+  }
+}
   Future<void> _updateUserInfo(String token) async {
     final response = await http.patch(
       Uri.parse(ApiConfig.updateUser),
@@ -577,64 +583,69 @@ class _EditDriverProfilePageState extends State<EditDriverProfilePage>
     }
   }
 
-  Future<void> _updateDriverProfile(String token) async {
-    var request = http.MultipartRequest('PATCH', Uri.parse(ApiConfig.driverProfile));
-    request.headers['Authorization'] = 'Bearer $token';
+Future<void> _updateDriverProfile(String token) async {
+  var request = http.MultipartRequest('PATCH', Uri.parse(ApiConfig.driverProfile));
+  request.headers['Authorization'] = 'Bearer $token';
 
-    // Add form fields
-    request.fields['experience'] = _experienceController.text.trim();
-    request.fields['licenseNumber'] = _licenseNumberController.text.trim();
-    request.fields['licenseExpiryDate'] = _licenseExpiryController.text;
-    request.fields['gender'] = _selectedGender ?? '';
-    request.fields['age'] = _ageController.text;
-    request.fields['location'] = _locationController.text.trim();
-    request.fields['knownTruckTypes'] = jsonEncode(_knownTruckTypes);
+  // Add form fields
+  request.fields['experience'] = _experienceController.text.trim();
+  request.fields['licenseNumber'] = _licenseNumberController.text.trim();
+  request.fields['licenseExpiryDate'] = _licenseExpiryController.text;
+  request.fields['gender'] = _selectedGender ?? '';
+  request.fields['age'] = _ageController.text;
+  request.fields['location'] = _locationController.text.trim();
+  request.fields['knownTruckTypes'] = jsonEncode(_knownTruckTypes);
 
-    // *** NEW: Add re-verification flag if needed ***
-    if (_needsReVerification) {
-      request.fields['requiresReVerification'] = 'true';
-      request.fields['changedFields'] = jsonEncode(_changedCriticalFields.toList());
-    }
-
-    // Add photos if selected
-    if (_licensePhotoFrontFile != null) {
-      String? mimeType = lookupMimeType(_licensePhotoFrontFile!.path);
-      request.files.add(await http.MultipartFile.fromPath(
-        'licensePhotoFront',
-        _licensePhotoFrontFile!.path,
-        contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
-      ));
-    }
-
-    if (_licensePhotoBackFile != null) {
-      String? mimeType = lookupMimeType(_licensePhotoBackFile!.path);
-      request.files.add(await http.MultipartFile.fromPath(
-        'licensePhotoBack',
-        _licensePhotoBackFile!.path,
-        contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
-      ));
-    }
-
-    if (_profilePhotoFile != null) {
-      String? mimeType = lookupMimeType(_profilePhotoFile!.path);
-      request.files.add(await http.MultipartFile.fromPath(
-        'profilePhoto',
-        _profilePhotoFile!.path,
-        contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
-      ));
-    }
-
-    final response = await request.send();
-    final responseData = await response.stream.bytesToString();
-
-    if (response.statusCode != 200) {
-      final errorData = jsonDecode(responseData);
-      throw Exception(errorData['error'] ?? 'Failed to update profile');
-    }
-
-    print('Profile updated successfully. Response: $responseData');
+  // *** NEW: Add re-verification flag if needed ***
+  if (_needsReVerification) {
+    request.fields['requiresReVerification'] = 'true';
+    request.fields['changedFields'] = jsonEncode(_changedCriticalFields.toList());
+  }
+  
+  // *** NEW: Auto-resubmit if profile was rejected ***
+  if (widget.profileData['verificationStatus'] == 'rejected') {
+    request.fields['requiresReVerification'] = 'true';
+    request.fields['resubmitVerification'] = 'true';
   }
 
+  // Add photos if selected
+  if (_licensePhotoFrontFile != null) {
+    String? mimeType = lookupMimeType(_licensePhotoFrontFile!.path);
+    request.files.add(await http.MultipartFile.fromPath(
+      'licensePhotoFront',
+      _licensePhotoFrontFile!.path,
+      contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
+    ));
+  }
+
+  if (_licensePhotoBackFile != null) {
+    String? mimeType = lookupMimeType(_licensePhotoBackFile!.path);
+    request.files.add(await http.MultipartFile.fromPath(
+      'licensePhotoBack',
+      _licensePhotoBackFile!.path,
+      contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
+    ));
+  }
+
+  if (_profilePhotoFile != null) {
+    String? mimeType = lookupMimeType(_profilePhotoFile!.path);
+    request.files.add(await http.MultipartFile.fromPath(
+      'profilePhoto',
+      _profilePhotoFile!.path,
+      contentType: http_parser.MediaType.parse(mimeType ?? 'image/jpeg'),
+    ));
+  }
+
+  final response = await request.send();
+  final responseData = await response.stream.bytesToString();
+
+  if (response.statusCode != 200) {
+    final errorData = jsonDecode(responseData);
+    throw Exception(errorData['error'] ?? 'Failed to update profile');
+  }
+
+  print('Profile updated successfully. Response: $responseData');
+}
   Widget _buildPhotoField({
     required String label,
     required String field,

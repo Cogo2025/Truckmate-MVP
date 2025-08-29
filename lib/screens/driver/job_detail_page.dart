@@ -132,7 +132,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => Dialog(
-        child: Image.asset('assets/images/m.jpg'), // Replace with your actual image path
+        child: Image.asset('assets/images/banner1.jpg'), // Replace with your actual image path
       ),
     );
     
@@ -635,11 +635,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
               widget.job['variant']['type'] != null && 
               widget.job['variant']['type'].toString().isNotEmpty)
             _buildDetailRow(Icons.category, "Variant", widget.job['variant']['type']),
-
-          if (widget.job['variant'] != null && 
-              widget.job['variant']['wheelsOrFeet'] != null && 
-              widget.job['variant']['wheelsOrFeet'].toString().isNotEmpty)
-            _buildDetailRow(Icons.settings, "Configuration", widget.job['variant']['wheelsOrFeet']),
         ],
       ),
     );
@@ -844,7 +839,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
     if (_showingImage) {
       return Scaffold(
         body: Center(
-          child: Image.asset('assets/images/m.jpg', fit: BoxFit.cover),
+          child: Image.asset('assets/images/banner1.jpg', fit: BoxFit.cover),
         ),
       );
     }

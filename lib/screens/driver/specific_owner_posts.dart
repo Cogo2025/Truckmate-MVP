@@ -44,8 +44,6 @@ class _SpecificOwnerPostsState extends State<SpecificOwnerPosts>
   String? errorMessage;
   bool _isMounted = false;
   late AnimationController _animationController;
-  String sortBy = 'newest'; // newest, salary_high, salary_low
-  String filterBy = 'all'; // all, full_time, part_time
 
   @override
   void initState() {
@@ -93,7 +91,8 @@ class _SpecificOwnerPostsState extends State<SpecificOwnerPosts>
       debugPrint("Error fetching owner profile: $e");
     }
   }
-Future<void> _fetchOwnerJobs() async {
+
+  Future<void> _fetchOwnerJobs() async {
     if (!_isMounted) return;
 
     setState(() {
@@ -159,6 +158,7 @@ Future<void> _fetchOwnerJobs() async {
     }
     return "Error loading jobs: ${error.toString().replaceAll('Exception: ', '')}";
   }
+
   // Enhanced job card with better visual hierarchy
   Widget _buildEnhancedJobCard(Map<String, dynamic> job, int index) {
     return FadeInUp(
@@ -495,88 +495,6 @@ Future<void> _fetchOwnerJobs() async {
     );
   }
 
-  // Filter and sort controls
-  Widget _buildFilterSortControls() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          // Filter dropdown
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.textSecondary.withOpacity(0.2),
-                ),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: filterBy,
-                  icon: Icon(
-                    Icons.filter_list,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      filterBy = newValue!;
-                    });
-                    _applyFiltersAndSort();
-                  },
-                  items: [
-                    DropdownMenuItem(value: 'all', child: Text('All Jobs')),
-                    DropdownMenuItem(value: 'full_time', child: Text('Full Time')),
-                    DropdownMenuItem(value: 'part_time', child: Text('Part Time')),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          
-          const SizedBox(width: 12),
-          
-          // Sort dropdown
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.textSecondary.withOpacity(0.2),
-                ),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: sortBy,
-                  icon: Icon(
-                    Icons.sort,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      sortBy = newValue!;
-                    });
-                    _applyFiltersAndSort();
-                  },
-                  items: [
-                    DropdownMenuItem(value: 'newest', child: Text('Newest')),
-                    DropdownMenuItem(value: 'salary_high', child: Text('Salary High')),
-                    DropdownMenuItem(value: 'salary_low', child: Text('Salary Low')),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // Shimmer loading effect
   Widget _buildShimmerLoading() {
     return Shimmer.fromColors(
@@ -633,100 +551,6 @@ Future<void> _fetchOwnerJobs() async {
     );
   }
 
-  void _applyFiltersAndSort() {
-    // Implement filtering and sorting logic here
-    List<dynamic> filteredJobs = List.from(jobs);
-    
-    // Apply filters
-    if (filterBy != 'all') {
-      filteredJobs = filteredJobs.where((job) {
-        return job['dutyType']?.toLowerCase().replaceAll(' ', '_') == filterBy;
-      }).toList();
-    }
-    
-    // Apply sorting
-    filteredJobs.sort((a, b) {
-      switch (sortBy) {
-        case 'salary_high':
-          return (b['salaryRange']?['max'] ?? 0).compareTo(
-              a['salaryRange']?['max'] ?? 0);
-        case 'salary_low':
-          return (a['salaryRange']?['min'] ?? 0).compareTo(
-              b['salaryRange']?['min'] ?? 0);
-        default: // newest
-          return 0; // Add timestamp comparison if available
-      }
-    });
-    
-    setState(() {
-      jobs = filteredJobs;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(
-          "Jobs by ${widget.ownerName}",
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: AppColors.primary,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-            onPressed: _fetchOwnerData,
-          ),
-        ],
-      ),
-      body: isLoading
-          ? _buildShimmerLoading()
-          : errorMessage != null
-              ? _buildErrorState()
-              : jobs.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _fetchOwnerData,
-                      color: AppColors.primary,
-                      child: CustomScrollView(
-                        slivers: [
-                          // Owner header
-                          SliverToBoxAdapter(
-                            child: _buildOwnerHeader(),
-                          ),
-                          
-                          // Filter and sort controls
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 16),
-                              child: _buildFilterSortControls(),
-                            ),
-                          ),
-                          
-                          // Job list
-                          SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) =>
-                                  _buildEnhancedJobCard(jobs[index], index),
-                              childCount: jobs.length,
-                            ),
-                          ),
-                          
-                          // Bottom padding
-                          const SliverToBoxAdapter(
-                            child: SizedBox(height: 80),
-                          ),
-                        ],
-                      ),
-                    ),
-    );
-  }
   Widget _buildErrorState() {
     return Center(
       child: Column(
@@ -767,15 +591,15 @@ Future<void> _fetchOwnerJobs() async {
       ),
     );
   }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Image.asset(
-            'assets/images/empty_jobs.png', // Add this asset to your project
-            width: 150,
-            height: 150,
+          Icon(
+            Icons.work_outline,
+            size: 80,
             color: Colors.blueGrey.withOpacity(0.5),
           ),
           const SizedBox(height: 16),
@@ -796,6 +620,61 @@ Future<void> _fetchOwnerJobs() async {
       ),
     );
   }
-  // Keep your existing methods for _fetchOwnerJobs, _buildErrorState, _buildEmptyState, etc.
-  // Just update them with the new color scheme and styling
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(
+          "Jobs by ${widget.ownerName}",
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        centerTitle: true,
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            onPressed: _fetchOwnerData,
+          ),
+        ],
+      ),
+      body: isLoading
+          ? _buildShimmerLoading()
+          : errorMessage != null
+              ? _buildErrorState()
+              : jobs.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: _fetchOwnerData,
+                      color: AppColors.primary,
+                      child: CustomScrollView(
+                        slivers: [
+                          // Owner header
+                          SliverToBoxAdapter(
+                            child: _buildOwnerHeader(),
+                          ),
+                          
+                          // Job list
+                          SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) =>
+                                  _buildEnhancedJobCard(jobs[index], index),
+                              childCount: jobs.length,
+                            ),
+                          ),
+                          
+                          // Bottom padding
+                          const SliverToBoxAdapter(
+                            child: SizedBox(height: 80),
+                          ),
+                        ],
+                      ),
+                    ),
+    );
+  }
 }
