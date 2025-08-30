@@ -4,26 +4,27 @@ import 'dart:convert';
 import '../../services/auth_service.dart';
 import '../../api_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'owner_profile_setup.dart'; // Add this import
 
 class UniqueDriverProfile extends StatefulWidget {
   final Map driver;
+
   const UniqueDriverProfile({
     super.key,
     required this.driver,
   });
 
   @override
-  State<UniqueDriverProfile> createState() => _UniqueDriverProfileState();
+  State createState() => _UniqueDriverProfileState();
 }
 
 class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
+
   bool isLiked = false;
   bool isLoading = true;
   bool _showingImage = false;
   bool _hasSeenImageForThisDriver = false;
   bool _showFullPhone = false;
-  
-  // Add ScrollController and GlobalKey
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _contactInfoKey = GlobalKey();
 
@@ -40,14 +41,118 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     super.dispose();
   }
 
-  // Scroll to contact information section
+  // Add profile completion check method
+  Future<bool> _checkProfileCompletion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    if (token == null) return false;
+
+    try {
+      final res = await http.get(
+        Uri.parse(ApiConfig.ownerProfile),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+      ).timeout(const Duration(seconds: 15));
+      
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return data['companyName'] != null && data['companyName'].toString().isNotEmpty;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Add profile completion prompt dialog
+  void _showProfileCompletionDialog(String featureName) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.account_circle, color: Colors.orange),
+              ),
+              const SizedBox(width: 12),
+              const Text('Complete Profile Required'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'To access $featureName, please complete your profile setup first.',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[800], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Complete your company details to unlock all features.',
+                        style: TextStyle(fontSize: 14, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Later', style: TextStyle(color: Colors.grey[600])),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
+                );
+              },
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Complete Profile'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _scrollToContactInfo() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_contactInfoKey.currentContext != null) {
         final box = _contactInfoKey.currentContext!.findRenderObject() as RenderBox;
         final position = box.localToGlobal(Offset.zero);
         final scrollPosition = position.dy - MediaQuery.of(context).padding.top - kToolbarHeight;
-        
         _scrollController.animateTo(
           scrollPosition,
           duration: const Duration(milliseconds: 500),
@@ -57,41 +162,35 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     });
   }
 
-  // Check if user has seen the image for THIS specific driver
-  Future<void> _checkIfImageSeenForThisDriver() async {
+  Future _checkIfImageSeenForThisDriver() async {
     final prefs = await SharedPreferences.getInstance();
     final driverId = widget.driver['id']?.toString();
     if (driverId == null) return;
-    
     final seenDrivers = prefs.getStringList('seenCallImageDrivers') ?? [];
     setState(() {
       _hasSeenImageForThisDriver = seenDrivers.contains(driverId);
-      // If user has seen image for this driver, show full phone immediately
       if (_hasSeenImageForThisDriver) {
         _showFullPhone = true;
       }
     });
   }
 
-  // Mark that user has seen the image for THIS specific driver
-  Future<void> _markImageAsSeenForThisDriver() async {
+  Future _markImageAsSeenForThisDriver() async {
     final prefs = await SharedPreferences.getInstance();
     final driverId = widget.driver['id']?.toString();
     if (driverId == null) return;
-    
     final seenDrivers = prefs.getStringList('seenCallImageDrivers') ?? [];
     if (!seenDrivers.contains(driverId)) {
       seenDrivers.add(driverId);
       await prefs.setStringList('seenCallImageDrivers', seenDrivers);
     }
-    
     setState(() {
       _hasSeenImageForThisDriver = true;
-      _showFullPhone = true; // Show full phone after seeing image
+      _showFullPhone = true;
     });
   }
 
-  Future<void> _checkIfDriverLiked() async {
+  Future _checkIfDriverLiked() async {
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) {
       setState(() => isLoading = false);
@@ -103,7 +202,6 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=${widget.driver['id']}'),
         headers: {"Authorization": "Bearer $freshToken"},
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -118,7 +216,14 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     }
   }
 
-  Future<void> _toggleDriverLike() async {
+  Future _toggleDriverLike() async {
+    // Check profile completion first
+    final isProfileComplete = await _checkProfileCompletion();
+    if (!isProfileComplete) {
+      _showProfileCompletionDialog('driver favorites');
+      return;
+    }
+
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -140,7 +245,7 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     }
   }
 
-  Future<void> _likeDriver(String token) async {
+  Future _likeDriver(String token) async {
     final response = await http.post(
       Uri.parse(ApiConfig.likeDriver),
       headers: {
@@ -149,7 +254,6 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
       },
       body: jsonEncode({'driverId': widget.driver['id'].toString()}),
     );
-
     if (response.statusCode == 201) {
       setState(() => isLiked = true);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -160,12 +264,11 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     }
   }
 
-  Future<void> _unlikeDriver(String token) async {
+  Future _unlikeDriver(String token) async {
     final response = await http.delete(
       Uri.parse('${ApiConfig.unlikeDriver}${widget.driver['id']}'),
       headers: {"Authorization": "Bearer $token"},
     );
-
     if (response.statusCode == 200) {
       setState(() => isLiked = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -176,12 +279,19 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     }
   }
 
-  void _contactDriver() {
+  // Modified: Contact driver with profile completion check
+  void _contactDriver() async {
+    // Check profile completion first
+    final isProfileComplete = await _checkProfileCompletion();
+    if (!isProfileComplete) {
+      _showProfileCompletionDialog('phone number access');
+      return;
+    }
+
     // Only show image if it's the first time for THIS driver
     if (!_hasSeenImageForThisDriver) {
       _showImage();
     } else {
-      // If already seen image for this driver, just update the phone display and scroll to contact info
       setState(() {
         _showFullPhone = true;
       });
@@ -190,36 +300,23 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
   }
 
   void _showImage() async {
-    // Show the image
     setState(() {
       _showingImage = true;
     });
-    
-    // Show dialog with the image
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => Dialog(
-        child: Image.asset('assets/images/ad.png'), // Replace with your actual image path
+        child: Image.asset('assets/images/banner1.jpg'),
       ),
     );
-    
-    // Mark that user has seen the image for THIS driver
     await _markImageAsSeenForThisDriver();
-    
-    // Wait for 5 seconds
     await Future.delayed(const Duration(seconds: 5));
-    
-    // Close the image dialog
     Navigator.of(context).pop();
-    
-    // Reset the state
     setState(() {
       _showingImage = false;
-      _showFullPhone = true; // Unmask the phone number
+      _showFullPhone = true;
     });
-    
-    // Scroll to contact information after showing image
     _scrollToContactInfo();
   }
 
@@ -229,10 +326,9 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
       return phone;
     }
     if (phone.length <= 4) return phone;
-    return '******${phone.substring(phone.length - 4)}';
+    return '${phone.substring(phone.length - 4)}';
   }
 
-  // Updated _buildProfileSection to accept key parameter
   Widget _buildProfileSection({
     Key? key,
     required String title,
@@ -240,7 +336,7 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
     required List<Widget> children,
   }) {
     return Column(
-      key: key, // Pass the key to the Column
+      key: key,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -318,15 +414,14 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
     if (_showingImage) {
       return Scaffold(
         body: Center(
-          child: Image.asset('assets/images/banner1.jpg'), // Replace with your actual image path
+          child: Image.asset('assets/images/banner1.jpg'),
         ),
       );
     }
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.driver['name'] ?? 'Driver Profile'),
@@ -345,12 +440,11 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
         ],
       ),
       body: SingleChildScrollView(
-        controller: _scrollController, // Add scroll controller
+        controller: _scrollController,
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Profile Header
             Center(
               child: Column(
                 children: [
@@ -439,9 +533,8 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
               ),
             ),
             const SizedBox(height: 32),
-            // Contact Information - Add GlobalKey here
             _buildProfileSection(
-              key: _contactInfoKey, // Add key to contact info section
+              key: _contactInfoKey,
               title: 'Contact Information',
               icon: Icons.contact_phone,
               children: [
@@ -451,7 +544,6 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
               ],
             ),
             const SizedBox(height: 24),
-            // Experience & Skills
             _buildProfileSection(
               title: 'Experience & Skills',
               icon: Icons.work,
@@ -463,7 +555,6 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
               ],
             ),
             const SizedBox(height: 24),
-            // Truck Types Chips
             if (widget.driver['truckTypes'] != null && widget.driver['truckTypes'].isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -506,7 +597,6 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
                   const SizedBox(height: 24),
                 ],
               ),
-            // Additional Info
             if (widget.driver['bio'] != null || widget.driver['specializations'] != null)
               _buildProfileSection(
                 title: 'Additional Information',
@@ -519,9 +609,7 @@ class _UniqueDriverProfileState extends State<UniqueDriverProfile> {
                         widget.driver['specializations']?.join(', ') ?? 'N/A'),
                 ],
               ),
-            
             const SizedBox(height: 32),
-            // Contact Button Only (Hire Driver button removed)
             Center(
               child: ElevatedButton.icon(
                 onPressed: _contactDriver,

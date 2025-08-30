@@ -9,9 +9,16 @@ import 'package:truckmate_app/screens/owner/my_posted_jobs_page.dart';
 import 'package:truckmate_app/screens/welcome_page.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'owner_profile_setup.dart';
+
 
 class OwnerProfilePage extends StatefulWidget {
-  const OwnerProfilePage({super.key});
+
+  final Map<String, dynamic>? registerInfo;
+  final bool? profileCompleted;
+  const OwnerProfilePage({super.key,
+  this.registerInfo, 
+    this.profileCompleted});
   
 
   @override
@@ -28,12 +35,14 @@ class _OwnerProfilePageState extends State<OwnerProfilePage> with SingleTickerPr
       );
     }
   }
-  
+
   bool isLoading = true;
   bool isEditing = false;
   bool isUpdating = false;
   Map<String, dynamic> userData = {};
   Map<String, dynamic> profileData = {};
+
+
   String? errorMessage;
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -211,55 +220,124 @@ final Color supportColor = const Color.fromARGB(255, 25, 219, 164);
     );
   }
 
+  Widget _buildIncompleteProfileBanner() {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.orange.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.orange.withOpacity(0.3)),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.info_outline, color: Colors.orange[800]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Complete Profile for Full Accessibility',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange[800],
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Add company details and complete your profile to access all features.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
+            );
+          },
+          child: const Text('Complete'),
+        ),
+      ],
+    ),
+  );
+}
+
+
   Future fetchOwnerProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-    if (token == null) {
-      setState(() {
-        isLoading = false;
-        errorMessage = "Token missing. Please log in.";
-      });
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) Navigator.pushReplacementNamed(context, '/login');
-      });
-      return;
-    }
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('authToken');
+  if (token == null) {
+    setState(() {
+      isLoading = false;
+      errorMessage = "Token missing. Please log in.";
+    });
+    return;
+  }
 
-    try {
-      final userRes = await http.get(
-        Uri.parse(ApiConfig.authMe),
-        headers: {"Authorization": "Bearer $token"},
-      );
-      final profileRes = await http.get(
-        Uri.parse(ApiConfig.ownerProfile),
-        headers: {"Authorization": "Bearer $token"},
-      );
+  try {
+    final userRes = await http.get(
+      Uri.parse(ApiConfig.authMe),
+      headers: {"Authorization": "Bearer $token"},
+    );
+    
+    final profileRes = await http.get(
+      Uri.parse(ApiConfig.ownerProfile),
+      headers: {"Authorization": "Bearer $token"},
+    );
 
-      if (userRes.statusCode == 200 && profileRes.statusCode == 200) {
+    if (userRes.statusCode == 200) {
+      final userDataResponse = jsonDecode(userRes.body);
+      
+      // For new users, use register info if profile incomplete
+      if (widget.profileCompleted == false && widget.registerInfo != null) {
         setState(() {
-          userData = jsonDecode(userRes.body);
+          this.userData = {
+            'name': widget.registerInfo!['name'] ?? '',
+            'email': widget.registerInfo!['email'] ?? '',
+            'phone': widget.registerInfo!['phone'] ?? '',
+            'photoUrl': widget.registerInfo!['photoUrl'] ?? '',
+          };
+          profileData = {}; // Empty profile data for new users
+          isLoading = false;
+          _nameController.text = this.userData["name"] ?? "";
+          _phoneController.text = this.userData["phone"] ?? "";
+          _companyNameController.text = "";
+          _companyLocationController.text = "";
+          _selectedGender = "Not Specified";
+        });
+      } else if (profileRes.statusCode == 200) {
+        // Existing complete profile logic
+        setState(() {
+          this.userData = userDataResponse;
           profileData = jsonDecode(profileRes.body);
           isLoading = false;
-          _nameController.text = userData["name"] ?? "";
-          _phoneController.text = userData["phone"] ?? "";
+          _nameController.text = this.userData["name"] ?? "";
+          _phoneController.text = this.userData["phone"] ?? "";
           _companyNameController.text = profileData["companyName"] ?? "";
           _companyLocationController.text = profileData["companyLocation"] ?? "";
           _selectedGender = profileData["gender"] ?? "Not Specified";
         });
-        _fadeController.forward();
-      } else {
-        setState(() {
-          isLoading = false;
-          errorMessage = "Failed to fetch profile.";
-        });
       }
-    } catch (e) {
+      _fadeController.forward();
+    } else {
       setState(() {
         isLoading = false;
-        errorMessage = "Error: $e";
+        errorMessage = "Failed to fetch profile.";
       });
     }
+  } catch (e) {
+    setState(() {
+      isLoading = false;
+      errorMessage = "Error: $e";
+    });
   }
+}
+
+
 
   Future _refreshProfile() async {
     setState(() {
@@ -1200,6 +1278,13 @@ Future _pickImage() async {
                             ),
                           ),
                           const SizedBox(height: 24),
+                          const SizedBox(height: 24),
+
+// Add incomplete profile banner for new users
+if (widget.profileCompleted == false) ...[
+  _buildIncompleteProfileBanner(),
+],
+
 
                           // Personal Information Section
                           _buildInfoSection(

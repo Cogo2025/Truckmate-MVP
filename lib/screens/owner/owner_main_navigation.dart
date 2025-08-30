@@ -2,42 +2,43 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
 import 'owner_dashboard.dart';
 import 'owner_profile_page.dart';
 import 'owner_post_job.dart';
 import 'owner_profile_setup.dart';
 import 'owner_drivers_page.dart';
 import 'owner_likes_page.dart';
-
 import '../../api_config.dart';
 
 class OwnerMainNavigation extends StatefulWidget {
   final int initialTabIndex;
   final String? selectedTruckType;
-  final bool isFromDashboard; // Add this flag
-  
+  final bool isFromDashboard;
+
   const OwnerMainNavigation({
-    super.key, 
+    super.key,
     this.initialTabIndex = 0,
     this.selectedTruckType,
-    this.isFromDashboard = false, // Default to false
+    this.isFromDashboard = false,
   });
 
   @override
-  State<OwnerMainNavigation> createState() => _OwnerMainNavigationState();
+  State createState() => _OwnerMainNavigationState();
 }
 
 class _OwnerMainNavigationState extends State<OwnerMainNavigation> with TickerProviderStateMixin {
   int _selectedIndex = 0;
   late List<Widget> _pages;
-
   late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
+ 
   late AnimationController _rippleController;
-  late Animation<double> _rippleAnimation;
+  late Animation<double> _scaleAnimation;
+late Animation<double> _rippleAnimation;
 
-  // Updated navigation items order: Dashboard > Likes > Post > Drivers > Profile
+  bool _isLoading = true;
+  bool _profileCompleted = false;
+  Map<String, dynamic>? _registerData;
+
   final List<NavigationItem> _navigationItems = [
     NavigationItem(
       icon: Icons.dashboard_rounded,
@@ -96,40 +97,23 @@ class _OwnerMainNavigationState extends State<OwnerMainNavigation> with TickerPr
     ),
   ];
 
-@override
-void initState() {
-  super.initState();
-  _selectedIndex = widget.initialTabIndex;
-
-  // Initialize pages with proper parameters
-  _pages = [
-    const OwnerDashboard(),
-    const OwnerLikesPage(),
-    const OwnerPostJobPage(),
-    // Pass both the filter and the source information correctly
-    OwnerDriversPage(
-      initialTruckTypeFilter: widget.selectedTruckType,
-      isFromDashboard: widget.isFromDashboard,
-    ),
-    const OwnerProfilePage(),
-  ];
-
-
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialTabIndex;
+    _loadProfileStatus();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
+    _scaleAnimation = Tween(begin: 1.0, end: 1.1).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
     );
-
     _rippleController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-
-    _rippleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+    _rippleAnimation = Tween(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _rippleController, curve: Curves.easeOut),
     );
   }
@@ -141,10 +125,88 @@ void initState() {
     super.dispose();
   }
 
+  Future<void> _loadProfileStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    if (token == null) {
+      setState(() {
+        _profileCompleted = false;
+        _isLoading = false;
+        _pages = _buildPages(false, {});
+      });
+      return;
+    }
+
+    try {
+      // Load user data first
+      final userRes = await http.get(
+        Uri.parse(ApiConfig.authMe),
+        headers: {"Authorization": "Bearer $token"},
+      ).timeout(const Duration(seconds: 10));
+
+      // Try to load profile data
+      final profileRes = await http.get(
+        Uri.parse(ApiConfig.ownerProfile),
+        headers: {"Authorization": "Bearer $token"},
+      ).timeout(const Duration(seconds: 10));
+
+      Map<String, dynamic> userData = {};
+      Map<String, dynamic> profileData = {};
+      bool completed = false;
+
+      if (userRes.statusCode == 200) {
+        userData = jsonDecode(userRes.body);
+      }
+
+      if (profileRes.statusCode == 200) {
+        profileData = jsonDecode(profileRes.body);
+        completed = profileData['companyName'] != null && 
+                   profileData['companyName'].toString().isNotEmpty;
+      }
+
+      // Combine user and profile data for register info
+      final registerInfo = {
+        'name': userData['name'] ?? '',
+        'email': userData['email'] ?? '',
+        'phone': userData['phone'] ?? '',
+        'photoUrl': userData['photoUrl'] ?? '',
+      };
+
+      setState(() {
+        _profileCompleted = completed;
+        _registerData = registerInfo;
+        _pages = _buildPages(completed, registerInfo);
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _profileCompleted = false;
+        _registerData = {};
+        _pages = _buildPages(false, {});
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Widget> _buildPages(bool profileCompleted, Map<String, dynamic>? registerInfo) {
+    return [
+      OwnerDashboard(newUser: !profileCompleted),
+      const OwnerLikesPage(),
+      const OwnerPostJobPage(),
+      OwnerDriversPage(
+        initialTruckTypeFilter: widget.selectedTruckType,
+        isFromDashboard: widget.isFromDashboard,
+      ),
+      OwnerProfilePage(
+        registerInfo: registerInfo,
+        profileCompleted: profileCompleted,
+      ),
+    ];
+  }
+
   Future<bool> _checkProfileStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
-
     if (token == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -162,10 +224,10 @@ void initState() {
           "Content-Type": "application/json",
         },
       ).timeout(const Duration(seconds: 15));
-
+      
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        return data['companyInfoCompleted'] == true;
+        return data['companyName'] != null && data['companyName'].toString().isNotEmpty;
       } else if (res.statusCode == 401) {
         await prefs.remove('authToken');
         if (mounted) {
@@ -175,25 +237,18 @@ void initState() {
         }
         return false;
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Failed to verify profile. Status: ${res.statusCode}")),
-          );
-        }
         return false;
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Network error: $e")),
-        );
-      }
       return false;
     }
   }
+
 void _onItemTapped(int index) async {
-  // Check profile status for Post and Profile tabs
-  if (index == 2 || index == 4) {
+  if (_isLoading) return;
+
+  // Only check profile completion for Post tab (not Profile tab anymore)
+  if (index == 2 && !_profileCompleted) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -201,7 +256,6 @@ void _onItemTapped(int index) async {
     );
 
     final completed = await _checkProfileStatus();
-
     if (mounted) Navigator.of(context).pop();
 
     if (!completed) {
@@ -209,26 +263,18 @@ void _onItemTapped(int index) async {
         context,
         MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
       );
+      if (updated == true) {
+        await _loadProfileStatus(); // Reload profile status
+      }
       if (updated != true) return;
     }
   }
 
-  // For Drivers tab, always recreate the page to ensure proper state
-  if (index == 3) {
-    setState(() {
-      _selectedIndex = index;
-      // Recreate the Drivers page with appropriate parameters
-      _pages[3] = OwnerDriversPage(
-        initialTruckTypeFilter: index == 3 ? null : widget.selectedTruckType,
-        isFromDashboard: index == 3 ? false : widget.isFromDashboard,
-      );
-    });
-  } else {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
+  setState(() {
+    _selectedIndex = index;
+  });
 
+  // Fixed lines - add underscore parameter to accept the callback parameter:
   _animationController.forward().then((_) => _animationController.reverse());
   _rippleController.forward().then((_) => _rippleController.reset());
 }
@@ -236,6 +282,12 @@ void _onItemTapped(int index) async {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return WillPopScope(
       onWillPop: () async {
         if (_selectedIndex != 0) {
@@ -279,7 +331,6 @@ void _onItemTapped(int index) async {
                 children: List.generate(_navigationItems.length, (index) {
                   final item = _navigationItems[index];
                   final isSelected = _selectedIndex == index;
-
                   return Expanded(
                     child: GestureDetector(
                       onTap: () => _onItemTapped(index),
@@ -304,8 +355,9 @@ void _onItemTapped(int index) async {
                                     animation: _rippleAnimation,
                                     builder: (context, child) {
                                       return Container(
-                                        width: 40 * _rippleAnimation.value,
-                                        height: 40 * _rippleAnimation.value,
+                                        width: (40 * _rippleAnimation.value).toDouble(),
+height: (40 * _rippleAnimation.value).toDouble(),
+
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
                                           color: Colors.white.withOpacity(
@@ -372,7 +424,6 @@ void _onItemTapped(int index) async {
   }
 }
 
-// Navigation item model
 class NavigationItem {
   final IconData icon;
   final IconData activeIcon;

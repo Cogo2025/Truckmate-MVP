@@ -1,20 +1,20 @@
-// owner_dashboard.dart - Enhanced version matching driver dashboard
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'owner_main_navigation.dart';
+import 'owner_profile_setup.dart';
 
 class OwnerDashboard extends StatefulWidget {
-  const OwnerDashboard({super.key});
+  final bool newUser;
+  const OwnerDashboard({super.key, this.newUser = false});
 
   @override
-  State<OwnerDashboard> createState() => _OwnerDashboardState();
+  State createState() => _OwnerDashboardState();
 }
 
-class _OwnerDashboardState extends State<OwnerDashboard>
-    with SingleTickerProviderStateMixin {
+class _OwnerDashboardState extends State<OwnerDashboard> with SingleTickerProviderStateMixin {
   final List<String> carouselImages = [
     'assets/images/banner1.jpg',
     'assets/images/banner2.jpg',
@@ -36,7 +36,10 @@ class _OwnerDashboardState extends State<OwnerDashboard>
   ];
 
   late AnimationController _animationController;
+ 
   late Animation<double> _fadeAnimation;
+
+  bool _popupShown = false;
 
   @override
   void initState() {
@@ -46,10 +49,16 @@ class _OwnerDashboardState extends State<OwnerDashboard>
       duration: const Duration(milliseconds: 800),
     );
     _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    );
+  parent: _animationController,
+  curve: Curves.easeInOut,
+) as Animation<double>;
+
     _animationController.forward();
+
+    // Show popup after 3-4 seconds if new user
+    if (widget.newUser) {
+      Future.delayed(const Duration(seconds: 3), _showCompleteProfileDialog);
+    }
   }
 
   @override
@@ -58,22 +67,106 @@ class _OwnerDashboardState extends State<OwnerDashboard>
     super.dispose();
   }
 
-void _onVehicleTypeSelected(String vehicleType) {
-  Navigator.pushReplacement(
-    context,
-    PageRouteBuilder(
-      pageBuilder: (context, animation, secondaryAnimation) =>
-          OwnerMainNavigation(
-        initialTabIndex: 3, // Drivers tab
-        selectedTruckType: vehicleType,
-        isFromDashboard: true, // This flag is important
-      ),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        return FadeTransition(opacity: animation, child: child);
+  void _showCompleteProfileDialog() {
+    if (_popupShown || !mounted) return;
+    _popupShown = true;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.account_circle, color: Colors.blue),
+              ),
+              const SizedBox(width: 12),
+              const Text('Complete Your Profile'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Complete your profile for full accessibility and better experience.',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.amber[800], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Some features may be limited until profile completion.',
+                        style: TextStyle(fontSize: 14, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Skip', style: TextStyle(color: Colors.grey[600])),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
+                );
+              },
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Complete Profile'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        );
       },
-    ),
-  );
-}
+    );
+  }
+
+  void _onVehicleTypeSelected(String vehicleType) {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            OwnerMainNavigation(
+          initialTabIndex: 3, // Drivers tab
+          selectedTruckType: vehicleType,
+          isFromDashboard: true,
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
+  }
+
   Widget _buildNotificationButton() {
     return Stack(
       clipBehavior: Clip.none,
@@ -126,7 +219,7 @@ void _onVehicleTypeSelected(String vehicleType) {
       ),
       child: WillPopScope(
         onWillPop: () async {
-          final shouldExit = await showDialog<bool>(
+          final shouldExit = await showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('Are you quitting?'),
@@ -235,7 +328,6 @@ void _onVehicleTypeSelected(String vehicleType) {
                               child: ScaleAnimation(
                                 child: GestureDetector(
                                   onTap: () {
-                                    print("🚚 Selected: ${vehicle["label"]}");
                                     _onVehicleTypeSelected(vehicle["label"]!);
                                   },
                                   child: Column(
@@ -255,8 +347,8 @@ void _onVehicleTypeSelected(String vehicleType) {
                                         vehicle["label"]!,
                                         textAlign: TextAlign.center,
                                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          fontWeight: FontWeight.w500,
-                                        ),
+                                              fontWeight: FontWeight.w500,
+                                            ),
                                       ),
                                     ],
                                   ),

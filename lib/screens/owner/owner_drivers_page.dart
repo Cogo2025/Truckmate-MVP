@@ -2,18 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../../services/auth_service.dart'; // Import the updated AuthService
+import '../../services/auth_service.dart';
 import '../../api_config.dart';
-import 'unique_driver_profile.dart'; // Import the new profile page
+import 'unique_driver_profile.dart';
+import 'owner_profile_setup.dart'; // Add this import
 
 class OwnerDriversPage extends StatefulWidget {
   final String? initialTruckTypeFilter;
-  final bool isFromDashboard; // Add this flag
+  final bool isFromDashboard;
 
   const OwnerDriversPage({
     super.key,
     this.initialTruckTypeFilter,
-    this.isFromDashboard = false, // Default to false
+    this.isFromDashboard = false,
   });
 
   @override
@@ -26,96 +27,174 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
   String? errorMessage;
   String? selectedLocation;
   String? selectedTruckType;
-  String? selectedVariant;
   List locations = [];
   List truckTypes = [];
   bool hasInitialFilterBeenApplied = false;
 
-  // Add variant options mapping
-  Map<String, List<String>> variantOptions = {
-    "Body Vehicle": ["6 wheels", "8 wheels", "12 wheels", "14 wheels", "16 wheels"],
-    "Trailer": ["20 ft", "32 ft", "40 ft"],
-    "Tipper": ["6 wheel", "10 wheel", "12 wheel", "16 wheel"],
-    "Container": ["20 ft", "22 ft", "24 ft", "32 ft"],
-  };
-
-@override
-void didUpdateWidget(OwnerDriversPage oldWidget) {
-  super.didUpdateWidget(oldWidget);
-  
-  // Only apply the initial filter if we're coming from dashboard
-  // and haven't applied it yet
-  if (widget.isFromDashboard && 
-      widget.initialTruckTypeFilter != null &&
-      !hasInitialFilterBeenApplied) {
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        selectedTruckType = widget.initialTruckTypeFilter;
-        hasInitialFilterBeenApplied = true;
-        isLoading = true;
+  @override
+  void didUpdateWidget(OwnerDriversPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isFromDashboard &&
+        widget.initialTruckTypeFilter != null &&
+        !hasInitialFilterBeenApplied) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          selectedTruckType = widget.initialTruckTypeFilter;
+          hasInitialFilterBeenApplied = true;
+          isLoading = true;
+        });
+        fetchAvailableDrivers();
       });
-      fetchAvailableDrivers();
-    });
-  }
-  
-  // If we're no longer coming from dashboard but still have the filter,
-  // clear it
-  else if (!widget.isFromDashboard && 
-           hasInitialFilterBeenApplied && 
-           selectedTruckType != null) {
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        selectedTruckType = null;
-        selectedVariant = null;
-        hasInitialFilterBeenApplied = false;
-        isLoading = true;
+    } else if (!widget.isFromDashboard &&
+        hasInitialFilterBeenApplied &&
+        selectedTruckType != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          selectedTruckType = null;
+          hasInitialFilterBeenApplied = false;
+          isLoading = true;
+        });
+        fetchAvailableDrivers();
       });
-      fetchAvailableDrivers();
-    });
+    }
   }
-}
 
-// Add this to the initState method
-@override
-void initState() {
-  super.initState();
-  
-  // Apply initial filter if provided
-  if (widget.initialTruckTypeFilter != null && widget.isFromDashboard) {
-    selectedTruckType = widget.initialTruckTypeFilter;
-    hasInitialFilterBeenApplied = true;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialTruckTypeFilter != null && widget.isFromDashboard) {
+      selectedTruckType = widget.initialTruckTypeFilter;
+      hasInitialFilterBeenApplied = true;
+    }
+    fetchAvailableDrivers();
   }
-  
-  fetchAvailableDrivers();
-}
-void _clearAllFilters() {
-  setState(() {
-    selectedLocation = null;
-    selectedTruckType = null;
-    selectedVariant = null;
-    hasInitialFilterBeenApplied = false; // Reset this flag
-    isLoading = true;
-    
-    // Sort drivers to show newly created profiles first
-    // Assuming there's a 'createdAt' field or similar timestamp
-    drivers.sort((a, b) {
-      final aTime = a['createdAt'] ?? '';
-      final bTime = b['createdAt'] ?? '';
-      return bTime.compareTo(aTime); // Newest first
-    });
-  });
-  fetchAvailableDrivers();
-}
 
-  // Updated: Fetch with fresh token and retry on expiration
+  // Add profile completion check method
+  Future<bool> _checkProfileCompletion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken');
+    if (token == null) return false;
+
+    try {
+      final res = await http.get(
+        Uri.parse(ApiConfig.ownerProfile),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+      ).timeout(const Duration(seconds: 15));
+      
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return data['companyName'] != null && data['companyName'].toString().isNotEmpty;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Add profile completion prompt dialog
+  void _showProfileCompletionDialog(String featureName) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.account_circle, color: Colors.orange),
+              ),
+              const SizedBox(width: 12),
+              const Text('Complete Profile Required'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'To access $featureName, please complete your profile setup first.',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[800], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Complete your company details to unlock all features.',
+                        style: TextStyle(fontSize: 14, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Later', style: TextStyle(color: Colors.grey[600])),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
+                );
+              },
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Complete Profile'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _clearAllFilters() {
+    setState(() {
+      selectedLocation = null;
+      selectedTruckType = null;
+      hasInitialFilterBeenApplied = false;
+      isLoading = true;
+      drivers.sort((a, b) {
+        final aTime = a['createdAt'] ?? '';
+        final bTime = b['createdAt'] ?? '';
+        return bTime.compareTo(aTime);
+      });
+    });
+    fetchAvailableDrivers();
+  }
+
   Future fetchAvailableDrivers() async {
     setState(() {
       isLoading = true;
       errorMessage = null;
     });
-
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) {
       setState(() {
@@ -129,16 +208,12 @@ void _clearAllFilters() {
     }
 
     try {
-      // Build query parameters
       final params = <String, String>{};
       if (selectedLocation != null && selectedLocation!.isNotEmpty) {
         params['location'] = selectedLocation!;
       }
       if (selectedTruckType != null && selectedTruckType!.isNotEmpty) {
         params['truckType'] = selectedTruckType!;
-      }
-      if (selectedVariant != null && selectedVariant!.isNotEmpty) {
-        params['variant'] = selectedVariant!;
       }
 
       final uri = Uri.parse('${ApiConfig.baseUrl}/api/profile/driver/available')
@@ -147,13 +222,11 @@ void _clearAllFilters() {
         uri,
         headers: {"Authorization": "Bearer $freshToken"},
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
           drivers = data['drivers'] ?? [];
           isLoading = false;
-          // Extract unique locations and truck types for filters (with explicit types)
           locations = drivers
               .map((d) => d['location']?.toString() ?? 'Unknown')
               .toSet()
@@ -166,7 +239,6 @@ void _clearAllFilters() {
               .toList();
         });
       } else if (response.body.contains('auth/id-token-expired')) {
-        // Retry once with forced refresh
         final retryToken = await AuthService.getFreshAuthToken();
         if (retryToken != null) {
           final retryResponse = await http.get(
@@ -215,8 +287,15 @@ void _clearAllFilters() {
     }
   }
 
-  // Updated: Toggle like with fresh token
+  // Modified: Toggle like with profile completion check
   Future _toggleDriverLike(Map driver) async {
+    // Check profile completion first
+    final isProfileComplete = await _checkProfileCompletion();
+    if (!isProfileComplete) {
+      _showProfileCompletionDialog('driver favorites');
+      return;
+    }
+
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -230,7 +309,6 @@ void _clearAllFilters() {
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=${driver['id']}'),
         headers: {"Authorization": "Bearer $freshToken"},
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['isLiked'] == true) {
@@ -248,7 +326,6 @@ void _clearAllFilters() {
     }
   }
 
-  // Updated: Like driver with fresh token
   Future _likeDriver(String driverId, String token) async {
     try {
       final response = await http.post(
@@ -259,7 +336,6 @@ void _clearAllFilters() {
         },
         body: jsonEncode({'driverId': driverId}),
       );
-
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver added to favorites")),
@@ -277,14 +353,12 @@ void _clearAllFilters() {
     }
   }
 
-  // Updated: Unlike driver with fresh token
   Future _unlikeDriver(String driverId, String token) async {
     try {
       final response = await http.delete(
         Uri.parse('${ApiConfig.unlikeDriver}$driverId'),
         headers: {"Authorization": "Bearer $token"},
       );
-
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver removed from favorites")),
@@ -302,17 +376,14 @@ void _clearAllFilters() {
     }
   }
 
-  // Updated: Check if liked with fresh token
   Future<bool> _checkIfDriverLiked(String driverId) async {
     final freshToken = await AuthService.getFreshAuthToken();
     if (freshToken == null) return false;
-
     try {
       final response = await http.get(
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=$driverId'),
         headers: {"Authorization": "Bearer $freshToken"},
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['isLiked'] ?? false;
@@ -323,265 +394,201 @@ void _clearAllFilters() {
     }
   }
 
-Widget _buildFilterDialog() {
-  // Define the lists locally for the filter dialog
-  final List<String> tamilNaduDistricts = [
-    "Ariyalur", "Chengalpattu", "Chennai", "Coimbatore",
-    "Cuddalore", "Dharmapuri", "Dindigul", "Erode",
-    "Kallakurichi", "Kancheepuram", "Karur",
-    "Krishnagiri", "Madurai", "Mayiladuthurai", "Nagapattinam",
-    "Namakkal", "Nilgiris", "Perambalur", "Pudukkottai",
-    "Ramanathapuram", "Ranipet", "Salem", "Sivaganga",
-    "Tenkasi", "Thanjavur", "Theni", "Thoothukudi",
-    "Tiruchirappalli", "Tirunelveli", "Tirupathur", "Tiruppur",
-    "Tiruvallur", "Tiruvannamalai", "Tiruvarur", "Vellore",
-    "Viluppuram", "Virudhunagar"
-  ];
+  Widget _buildFilterDialog() {
+    final List<String> tamilNaduDistricts = [
+      "Ariyalur", "Chengalpattu", "Chennai", "Coimbatore",
+      "Cuddalore", "Dharmapuri", "Dindigul", "Erode",
+      "Kallakurichi", "Kancheepuram", "Karur",
+      "Krishnagiri", "Madurai", "Mayiladuthurai", "Nagapattinam",
+      "Namakkal", "Nilgiris", "Perambalur", "Pudukkottai",
+      "Ramanathapuram", "Ranipet", "Salem", "Sivaganga",
+      "Tenkasi", "Thanjavur", "Theni", "Thoothukudi",
+      "Tiruchirappalli", "Tirunelveli", "Tirupathur", "Tiruppur",
+      "Tiruvallur", "Tiruvannamalai", "Tiruvarur", "Vellore",
+      "Viluppuram", "Virudhunagar"
+    ];
+    final List<String> allTruckTypes = [
+      "Body Vehicle", "Trailer", "Tipper", "Gas Tanker",
+      "Wind Mill", "Concrete Mixer", "Petrol Tank",
+      "Container", "Bulker"
+    ];
 
-  final List<String> allTruckTypes = [
-    "Body Vehicle", "Trailer", "Tipper", "Gas Tanker",
-    "Wind Mill", "Concrete Mixer", "Petrol Tank",
-    "Container", "Bulker"
-  ];
-
-  return Dialog(
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    elevation: 4,
-    child: Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            spreadRadius: 5,
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.filter_alt, color: Theme.of(context).primaryColor),
-              const SizedBox(width: 8),
-              Text(
-                'Filter Drivers',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).primaryColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // Location Filter
-          Text(
-            'Location',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade600,
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              spreadRadius: 5,
             ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: DropdownButtonFormField<String?>(
-              value: selectedLocation,
-              decoration: InputDecoration(
-                labelText: 'Select Location',
-                floatingLabelBehavior: FloatingLabelBehavior.never,
-                prefixIcon: Icon(Icons.location_on, color: Colors.grey.shade600),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-              ),
-              dropdownColor: Colors.white,
-              items: [
-                DropdownMenuItem<String?>(
-                  value: null,
-                  child: Text(
-                    'All Locations',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ),
-                ...tamilNaduDistricts.map((location) {
-                  return DropdownMenuItem<String?>(
-                    value: location,
-                    child: Text(
-                      location,
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  );
-                }).toList(),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  selectedLocation = value;
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Truck Type Filter
-          Text(
-            'Truck Type',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: DropdownButtonFormField<String?>(
-              value: selectedTruckType,
-              decoration: InputDecoration(
-                labelText: 'Select Truck Type',
-                floatingLabelBehavior: FloatingLabelBehavior.never,
-                prefixIcon: Icon(Icons.local_shipping, color: Colors.grey.shade600),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-              ),
-              dropdownColor: Colors.white,
-              items: [
-                DropdownMenuItem<String?>(
-                  value: null,
-                  child: Text(
-                    'All Truck Types',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ),
-                ...allTruckTypes.map((type) {
-                  return DropdownMenuItem<String?>(
-                    value: type,
-                    child: Text(
-                      type,
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  );
-                }).toList(),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  selectedTruckType = value;
-                  selectedVariant = null; // Reset variant when truck type changes
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Variant Filter (only shown for supported truck types)
-          if (selectedTruckType != null && variantOptions.containsKey(selectedTruckType))
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
+                Icon(Icons.filter_alt, color: Theme.of(context).primaryColor),
+                const SizedBox(width: 8),
                 Text(
-                  'Variant',
+                  'Filter Drivers',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade600,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).primaryColor,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: DropdownButtonFormField<String?>(
-                    value: selectedVariant,
-                    decoration: InputDecoration(
-                      labelText: 'Select Variant',
-                      floatingLabelBehavior: FloatingLabelBehavior.never,
-                      prefixIcon: Icon(Icons.settings, color: Colors.grey.shade600),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    ),
-                    dropdownColor: Colors.white,
-                    items: [
-                      DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text(
-                          'All Variants',
-                          style: TextStyle(color: Colors.grey.shade700),
-                        ),
-                      ),
-                      ...variantOptions[selectedTruckType]!.map((variant) {
-                        return DropdownMenuItem<String?>(
-                          value: variant,
-                          child: Text(
-                            variant,
-                            style: TextStyle(color: Colors.grey.shade700),
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        selectedVariant = value;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
               ],
             ),
-          const SizedBox(height: 24),
-          // Action Buttons
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton(
-                onPressed: _clearAllFilters,
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey.shade600,
+            const SizedBox(height: 20),
+            Text(
+              'Location',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: DropdownButtonFormField<String>(
+                value: selectedLocation,
+                decoration: InputDecoration(
+                  labelText: 'Select Location',
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
+                  prefixIcon: Icon(Icons.location_on, color: Colors.grey.shade600),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                 ),
-                child: const Text('Clear All'),
-              ),
-              Row(
-                children: [
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      setState(() => isLoading = true);
-                      fetchAvailableDrivers();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).primaryColor,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                dropdownColor: Colors.white,
+                items: [
+                  DropdownMenuItem<String>(
+                    value: null,
+                    child: Text(
+                      'All Locations',
+                      style: TextStyle(color: Colors.grey.shade700),
                     ),
-                    child: const Text('Apply Filters'),
                   ),
+                  ...tamilNaduDistricts.map((location) {
+                    return DropdownMenuItem<String>(
+                      value: location,
+                      child: Text(
+                        location,
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    );
+                  }).toList(),
                 ],
+                onChanged: (value) {
+                  setState(() {
+                    selectedLocation = value;
+                  });
+                },
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Truck Type',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: DropdownButtonFormField<String>(
+                value: selectedTruckType,
+                decoration: InputDecoration(
+                  labelText: 'Select Truck Type',
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
+                  prefixIcon: Icon(Icons.local_shipping, color: Colors.grey.shade600),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                ),
+                dropdownColor: Colors.white,
+                items: [
+                  DropdownMenuItem<String>(
+                    value: null,
+                    child: Text(
+                      'All Truck Types',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                  ),
+                  ...allTruckTypes.map((type) {
+                    return DropdownMenuItem<String>(
+                      value: type,
+                      child: Text(
+                        type,
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    );
+                  }).toList(),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    selectedTruckType = value;
+                  });
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: _clearAllFilters,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.grey.shade600,
+                  ),
+                  child: const Text('Clear All'),
+                ),
+                Row(
+                  children: [
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        setState(() => isLoading = true);
+                        fetchAvailableDrivers();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      ),
+                      child: const Text('Apply Filters'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
+
   Widget _buildDriverCard(Map driver) {
     final theme = Theme.of(context);
     return Card(
@@ -597,7 +604,6 @@ Widget _buildFilterDialog() {
             children: [
               Row(
                 children: [
-                  // Profile Picture with status indicator
                   Stack(
                     children: [
                       Container(
@@ -638,7 +644,6 @@ Widget _buildFilterDialog() {
                     ],
                   ),
                   const SizedBox(width: 16),
-                  // Driver Info
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -691,7 +696,6 @@ Widget _buildFilterDialog() {
                       ],
                     ),
                   ),
-                  // Action Buttons
                   Column(
                     children: [
                       Icon(
@@ -719,7 +723,6 @@ Widget _buildFilterDialog() {
                 ],
               ),
               const SizedBox(height: 12),
-              // Truck types chips
               if (driver['truckTypes'] != null && driver['truckTypes'].isNotEmpty)
                 SizedBox(
                   height: 32,
@@ -754,7 +757,6 @@ Widget _buildFilterDialog() {
     );
   }
 
-  // Modified: Navigate to new page instead of showing modal
   void _viewDriverProfile(Map driver) {
     Navigator.push(
       context,
@@ -763,26 +765,26 @@ Widget _buildFilterDialog() {
       ),
     );
   }
-@override
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-  title: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        "Available Drivers",
-        style: TextStyle(fontSize: 20),
-      ),
-      if (widget.initialTruckTypeFilter != null && widget.isFromDashboard)
-        Text(
-          "Filtered by: ${widget.initialTruckTypeFilter}",
-          style: const TextStyle(fontSize: 12),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Available Drivers",
+              style: TextStyle(fontSize: 20),
+            ),
+            if (widget.initialTruckTypeFilter != null && widget.isFromDashboard)
+              Text(
+                "Filtered by: ${widget.initialTruckTypeFilter}",
+                style: const TextStyle(fontSize: 12),
+              ),
+          ],
         ),
-    ],
-  ),
-      
         automaticallyImplyLeading: false,
         backgroundColor: theme.primaryColor,
         foregroundColor: Colors.white,
@@ -799,15 +801,13 @@ Widget _buildFilterDialog() {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
-            onPressed: _clearAllFilters, // Use the new method
+            onPressed: _clearAllFilters,
           ),
         ],
       ),
- 
       body: Column(
         children: [
-          // Active Filters Display
-          if (selectedLocation != null || selectedTruckType != null || selectedVariant != null)
+          if (selectedLocation != null || selectedTruckType != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
@@ -826,68 +826,46 @@ Widget _buildFilterDialog() {
                       runSpacing: 8,
                       children: [
                         if (selectedLocation != null)
-    InputChip(
-      label: Text(selectedLocation!),
-      labelStyle: TextStyle(color: theme.primaryColor),
-      deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
-      onDeleted: () {
-        setState(() {
-          selectedLocation = null;
-          isLoading = true;
-        });
-        fetchAvailableDrivers();
-      },
-      backgroundColor: theme.primaryColor.withOpacity(0.1),
-      shape: StadiumBorder(
-        side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
-      ),
-    ),
-  // In the _buildActiveFiltersChips section of owner_drivers_page.dart:
-
-// In the _buildActiveFiltersChips section
-if (selectedTruckType != null)
-  InputChip(
-    label: Text(selectedTruckType!),
-    labelStyle: TextStyle(color: theme.primaryColor),
-    deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
-    onDeleted: () {
-      setState(() {
-        selectedTruckType = null;
-        selectedVariant = null;
-        hasInitialFilterBeenApplied = false; // Reset this flag
-        isLoading = true;
-      });
-      fetchAvailableDrivers();
-    },
-    backgroundColor: theme.primaryColor.withOpacity(0.1),
-    shape: StadiumBorder(
-      side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
-    ),
-  ),
-  if (selectedVariant != null)
-  InputChip(
-    label: Text(selectedVariant!),
-    labelStyle: TextStyle(color: theme.primaryColor),
-    deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
-    onDeleted: () {
-      setState(() {
-        selectedVariant = null;
-        isLoading = true;
-      });
-      fetchAvailableDrivers();
-    },
-    backgroundColor: theme.primaryColor.withOpacity(0.1),
-    shape: StadiumBorder(
-      side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
-    ),
-  ),
+                          InputChip(
+                            label: Text(selectedLocation!),
+                            labelStyle: TextStyle(color: theme.primaryColor),
+                            deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
+                            onDeleted: () {
+                              setState(() {
+                                selectedLocation = null;
+                                isLoading = true;
+                              });
+                              fetchAvailableDrivers();
+                            },
+                            backgroundColor: theme.primaryColor.withOpacity(0.1),
+                            shape: StadiumBorder(
+                              side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+                            ),
+                          ),
+                        if (selectedTruckType != null)
+                          InputChip(
+                            label: Text(selectedTruckType!),
+                            labelStyle: TextStyle(color: theme.primaryColor),
+                            deleteIcon: Icon(Icons.close, size: 16, color: theme.primaryColor),
+                            onDeleted: () {
+                              setState(() {
+                                selectedTruckType = null;
+                                hasInitialFilterBeenApplied = false;
+                                isLoading = true;
+                              });
+                              fetchAvailableDrivers();
+                            },
+                            backgroundColor: theme.primaryColor.withOpacity(0.1),
+                            shape: StadiumBorder(
+                              side: BorderSide(color: theme.primaryColor.withOpacity(0.3)),
+                            ),
+                          ),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-          // Main Content
           Expanded(
             child: isLoading
                 ? const Center(
@@ -965,7 +943,7 @@ if (selectedTruckType != null)
                                 Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 40),
                                   child: Text(
-                                    selectedLocation != null || selectedTruckType != null || selectedVariant != null
+                                    selectedLocation != null || selectedTruckType != null
                                         ? "Try adjusting your filters or check back later"
                                         : "Drivers who are currently available will appear here",
                                     style: TextStyle(
@@ -982,7 +960,6 @@ if (selectedTruckType != null)
                                       onPressed: () {
                                         setState(() {
                                           selectedTruckType = null;
-                                          selectedVariant = null;
                                           isLoading = true;
                                         });
                                         fetchAvailableDrivers();
