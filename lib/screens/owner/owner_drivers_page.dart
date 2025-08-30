@@ -19,10 +19,12 @@ class OwnerDriversPage extends StatefulWidget {
 
   @override
   State createState() => _OwnerDriversPageState();
+  State createState() => _OwnerDriversPageState();
 }
 
 class _OwnerDriversPageState extends State<OwnerDriversPage> {
   bool isLoading = true;
+  List drivers = [];
   List drivers = [];
   String? errorMessage;
   String? selectedLocation;
@@ -336,6 +338,7 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
         },
         body: jsonEncode({'driverId': driverId}),
       );
+
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver added to favorites")),
@@ -359,6 +362,7 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
         Uri.parse('${ApiConfig.unlikeDriver}$driverId'),
         headers: {"Authorization": "Bearer $token"},
       );
+
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver removed from favorites")),
@@ -384,6 +388,7 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
         Uri.parse('${ApiConfig.checkDriverLike}?driverId=$driverId'),
         headers: {"Authorization": "Bearer $freshToken"},
       );
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['isLiked'] ?? false;
@@ -617,9 +622,11 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
                         child: CircleAvatar(
                           radius: 30,
                           backgroundImage: driver['photoUrl'] != null && driver['photoUrl'].isNotEmpty
+                          backgroundImage: driver['photoUrl'] != null && driver['photoUrl'].isNotEmpty
                               ? NetworkImage(driver['photoUrl'])
                               : null,
                           backgroundColor: Colors.grey.shade200,
+                          child: (driver['photoUrl'] == null || driver['photoUrl'].isEmpty)
                           child: (driver['photoUrl'] == null || driver['photoUrl'].isEmpty)
                               ? Icon(Icons.person, size: 30, color: Colors.grey.shade400)
                               : null,
@@ -729,6 +736,7 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     children: (driver['truckTypes'] as List)
+                    children: (driver['truckTypes'] as List)
                         .map((type) => Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: Chip(
@@ -805,6 +813,7 @@ class _OwnerDriversPageState extends State<OwnerDriversPage> {
           ),
         ],
       ),
+ 
       body: Column(
         children: [
           if (selectedLocation != null || selectedTruckType != null)

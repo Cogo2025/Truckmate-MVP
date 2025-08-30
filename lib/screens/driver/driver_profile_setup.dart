@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -16,6 +17,7 @@ class DriverProfileSetupPage extends StatefulWidget {
   const DriverProfileSetupPage({Key? key, required this.userData}) : super(key: key);
 
   @override
+  _DriverProfileSetupPageState createState() => _DriverProfileSetupPageState();
   _DriverProfileSetupPageState createState() => _DriverProfileSetupPageState();
 }
 
@@ -488,6 +490,7 @@ class _DriverProfileSetupPageState extends State<DriverProfileSetupPage>
       print('📡 Response received: ${response.statusCode}');
       print('📄 Response body: ${response.body}');
 
+      // *** CRITICAL: Handle response properly ***
       if (response.statusCode == 201) {
         try {
           final jsonResponse = jsonDecode(response.body);

@@ -12,7 +12,12 @@ import 'package:truckmate_app/screens/driver/driver_profile_setup.dart';
 
 class DriverDashboard extends StatefulWidget {
   const DriverDashboard({super.key});
+class DriverDashboard extends StatefulWidget {
+  const DriverDashboard({super.key});
 
+  @override
+  State<DriverDashboard> createState() => _DriverDashboardState();
+}
   @override
   State<DriverDashboard> createState() => _DriverDashboardState();
 }
@@ -25,7 +30,26 @@ class _DriverDashboardState extends State<DriverDashboard> with SingleTickerProv
     'assets/images/banner4.jpg',
     'assets/images/banner5.jpg',
   ];
+class _DriverDashboardState extends State<DriverDashboard> with SingleTickerProviderStateMixin {
+  final List<String> carouselImages = [
+    'assets/images/banner1.jpg',
+    'assets/images/banner2.jpg',
+    'assets/images/banner3.jpg',
+    'assets/images/banner4.jpg',
+    'assets/images/banner5.jpg',
+  ];
 
+  final List<Map<String, String>> vehicleTypes = [
+    {"image": "assets/images/body_vehicle.png", "label": "Body Vehicle"},
+    {"image": "assets/images/trailer.png", "label": "Trailer"},
+    {"image": "assets/images/tipper.png", "label": "Tipper"},
+    {"image": "assets/images/gas_tanker.png", "label": "Gas Tanker"},
+    {"image": "assets/images/wind_mill_trailer.png", "label": "Wind Mill"},
+    {"image": "assets/images/concrete_mixer.png", "label": "Concrete Mixer"},
+    {"image": "assets/images/petrol_tank.png", "label": "Petrol Tank"},
+    {"image": "assets/images/container.png", "label": "Container"},
+    {"image": "assets/images/bulker.png", "label": "Bulker"},
+  ];
   final List<Map<String, String>> vehicleTypes = [
     {"image": "assets/images/body_vehicle.png", "label": "Body Vehicle"},
     {"image": "assets/images/trailer.png", "label": "Trailer"},

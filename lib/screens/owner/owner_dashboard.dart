@@ -1,3 +1,4 @@
+// owner_dashboard.dart - Enhanced version matching driver dashboard
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> with SingleTickerProvid
     'assets/images/banner5.jpg',
   ];
 
+  final List<Map<String, String>> vehicleTypes = [
   final List<Map<String, String>> vehicleTypes = [
     {"image": "assets/images/body_vehicle.png", "label": "Body Vehicle"},
     {"image": "assets/images/trailer.png", "label": "Trailer"},
@@ -187,6 +189,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> with SingleTickerProvid
       data: ThemeData.light().copyWith(
         primaryColor: Colors.blueAccent,
         scaffoldBackgroundColor: const Color.fromARGB(255, 244, 243, 255),
+        scaffoldBackgroundColor: const Color.fromARGB(255, 244, 243, 255),
         textTheme: TextTheme(
           headlineLarge: GoogleFonts.poppins(
             fontSize: 24,
@@ -257,9 +260,11 @@ class _OwnerDashboardState extends State<OwnerDashboard> with SingleTickerProvid
                           opacity: _fadeAnimation,
                           child: Text(
                             "Welcome Owner 👋",
+                            "Welcome Owner 👋",
                             style: Theme.of(context).textTheme.headlineLarge,
                           ),
                         ),
+                        _buildNotificationButton(),
                         _buildNotificationButton(),
                       ],
                     ),
@@ -305,6 +310,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> with SingleTickerProvid
                     const SizedBox(height: 32),
                     Text(
                       "Find Drivers by Vehicle Type",
+                      "Find Drivers by Vehicle Type",
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     const SizedBox(height: 16),
@@ -347,8 +353,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> with SingleTickerProvid
                                         vehicle["label"]!,
                                         textAlign: TextAlign.center,
                                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                     ],
                                   ),

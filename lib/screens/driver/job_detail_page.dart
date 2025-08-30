@@ -14,6 +14,8 @@ import 'dart:async';
 // Enhanced Theme Colors
 const primaryColor = Color(0xFF1976D2);
 const accentColor = Color.fromARGB(255, 255, 0, 0);
+const primaryColor = Color(0xFF1976D2);
+const accentColor = Color.fromARGB(255, 255, 0, 0);
 const backgroundColor = Color(0xFFF5F5F5);
 const cardColor = Colors.white;
 const textColor = Colors.black87;
@@ -372,6 +374,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
           child: Stack(
             children: [
               PageView.builder(
+                itemCount: photosBase64?.length ?? 0,
                 itemCount: photosBase64?.length ?? 0,
                 controller: PageController(initialPage: initialIndex),
                 itemBuilder: (context, index) {
@@ -1166,6 +1169,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
                   },
                   color: primaryColor,
                   child: SingleChildScrollView(
+                    controller: _scrollController,
                     controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     child: Column(

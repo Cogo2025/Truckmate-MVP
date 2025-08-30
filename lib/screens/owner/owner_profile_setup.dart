@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
+import 'package:mime/mime.dart';
 import 'package:truckmate_app/api_config.dart';
+import 'owner_main_navigation.dart';
 import 'owner_main_navigation.dart';
 
 class OwnerProfileSetupPage extends StatefulWidget {
@@ -75,11 +77,20 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
     _animationController.forward();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _animationController.forward();
     _loadExistingProfile();
   }
 
   @override
   void dispose() {
+    _animationController.dispose();
     _animationController.dispose();
     _companyNameController.dispose();
     super.dispose();
@@ -151,20 +162,113 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
           ),
         );
       },
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: cardColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Select Profile Photo',
+            style: TextStyle(
+              color: primaryColor,
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildImageSourceOption(
+                icon: Icons.photo_library,
+                title: 'Gallery',
+                subtitle: 'Choose from gallery',
+                color: secondaryColor,
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              const SizedBox(height: 16),
+              _buildImageSourceOption(
+                icon: Icons.photo_camera,
+                title: 'Camera',
+                subtitle: 'Take a new photo',
+                color: accentColor,
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
     );
-
+    
     if (result != null) {
       try {
         final picked = await _picker.pickImage(
           source: result,
           maxWidth: 1024,
           maxHeight: 1024,
+          maxWidth: 1024,
+          maxHeight: 1024,
           imageQuality: 85,
         );
+        
         if (picked != null) {
           setState(() => profilePhoto = picked);
         }
       } catch (e) {
+        _showError('Error picking image: $e');
+      }
+    }
+  }
+
+  Widget _buildImageSourceOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
         _showError('Error picking image: $e');
       }
     }
@@ -240,10 +344,11 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
 
     _formKey.currentState!.save();
     setState(() => _isLoading = true);
-
+    
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
     if (token == null) {
+      _showError("User not logged in");
       _showError("User not logged in");
       setState(() => _isLoading = false);
       return;
@@ -311,12 +416,14 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
       }
     } catch (e) {
       setState(() => _isLoading = false);
+      setState(() => _isLoading = false);
       String errorMessage = "Network error";
       if (e.toString().contains("TimeoutException")) {
         errorMessage = "Request timed out. Please try again.";
       } else if (e.toString().contains("SocketException")) {
         errorMessage = "No internet connection";
       }
+      _showError(errorMessage);
       _showError(errorMessage);
     }
   }
@@ -580,12 +687,264 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
+  void _handleError(http.Response response) {
+    setState(() => _isLoading = false);
+    String errorMessage = "Something went wrong";
+    try {
+      final error = jsonDecode(response.body);
+      errorMessage = error["error"] ?? error["message"] ?? errorMessage;
+    } catch (e) {
+      errorMessage = "Server error (${response.statusCode})";
+    }
+    _showError(errorMessage);
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: errorColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: successColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Widget _buildGradientCard({
+    required Widget child,
+    Color? startColor,
+    Color? endColor,
+    EdgeInsetsGeometry? padding,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            startColor ?? Colors.white,
+            endColor ?? surfaceColor,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(20),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildCustomTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    String? Function(String?)? validator,
+    TextInputType? keyboardType,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: primaryColor),
+          filled: true,
+          fillColor: surfaceColor,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: errorColor, width: 2),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: errorColor, width: 2),
+          ),
+          labelStyle: TextStyle(color: Colors.grey[600]),
+          floatingLabelStyle: const TextStyle(color: primaryColor),
+        ),
+        validator: validator,
+        keyboardType: keyboardType,
+      ),
+    );
+  }
+
+  Widget _buildCustomDropdown({
+    required String label,
+    required IconData icon,
+    required String? value,
+    required List<DropdownMenuItem<String>> items,
+    required void Function(String?) onChanged,
+    String? Function(String?)? validator,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<String>(
+        value: value,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: primaryColor),
+          filled: true,
+          fillColor: surfaceColor,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: primaryColor, width: 2),
+          ),
+          labelStyle: TextStyle(color: Colors.grey[600]),
+          floatingLabelStyle: const TextStyle(color: primaryColor),
+        ),
+        items: items,
+        onChanged: onChanged,
+        validator: validator,
+      ),
+    );
+  }
+
+  Widget _buildProfilePhotoSection() {
+    return _buildGradientCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.account_circle, color: primaryColor, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Profile Photo',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              // Photo display
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [
+                      primaryColor.withOpacity(0.1),
+                      secondaryColor.withOpacity(0.1),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: primaryColor.withOpacity(0.3),
+                    width: 2,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: _buildPhotoWidget(),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  children: [
+                    _buildPhotoButton(
+                      icon: Icons.cloud_upload_outlined,
+                      label: 'Upload Photo',
+                      color: primaryColor,
+                      onPressed: _showImageSourceDialog,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPhotoButton(
+                      icon: Icons.delete_outline,
+                      label: 'Remove Photo',
+                      color: errorColor,
+                      onPressed: () {
+                        setState(() {
+                          profilePhoto = null;
+                          existingPhotoUrl = null;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
               color: accentColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
+            child: Row(
               children: [
+                Icon(Icons.info_outline, color: accentColor, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Supported: JPEG, JPG, PNG, GIF (Max: 5MB)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 Icon(Icons.info_outline, color: accentColor, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
@@ -618,9 +977,33 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
           return _buildPlaceholderIcon();
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoWidget() {
+    if (profilePhoto != null) {
+      return Image.file(
+        File(profilePhoto!.path),
+        fit: BoxFit.cover,
+      );
+    } else if (existingPhotoUrl != null && existingPhotoUrl!.isNotEmpty) {
+      return Image.network(
+        existingPhotoUrl!,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholderIcon();
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
+          return Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded /
+                      loadingProgress.expectedTotalBytes!
+                  : null,
           return Center(
             child: CircularProgressIndicator(
               value: loadingProgress.expectedTotalBytes != null
@@ -638,8 +1021,22 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
 
   Widget _buildPlaceholderIcon() {
     return Column(
+      );
+    } else {
+      return _buildPlaceholderIcon();
+    }
+  }
+
+  Widget _buildPlaceholderIcon() {
+    return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        Icon(
+          Icons.account_circle,
+          size: 40,
+          color: Colors.grey[400],
+        ),
+        const SizedBox(height: 8),
         Icon(
           Icons.account_circle,
           size: 40,
@@ -649,8 +1046,33 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
         Text(
           'No Photo',
           style: TextStyle(fontSize: 12, color: Colors.grey),
+          'No Photo',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
         ),
       ],
+    );
+  }
+
+  Widget _buildPhotoButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label, style: const TextStyle(fontSize: 13)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
     );
   }
 
@@ -949,3 +1371,4 @@ class _OwnerProfileSetupPageState extends State<OwnerProfileSetupPage>
     );
   }
 }
+

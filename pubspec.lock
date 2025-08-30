@@ -206,8 +206,10 @@ packages:
     description:
       name: firebase_core_platform_interface
       sha256: "8bcfad6d7033f5ea951d15b867622a824b13812178bfec0c779b9d81de011bbb"
+      sha256: "8bcfad6d7033f5ea951d15b867622a824b13812178bfec0c779b9d81de011bbb"
       url: "https://pub.dev"
     source: hosted
+    version: "5.4.2"
     version: "5.4.2"
   firebase_core_web:
     dependency: transitive
@@ -243,8 +245,10 @@ packages:
     description:
       name: flutter_plugin_android_lifecycle
       sha256: "6382ce712ff69b0f719640ce957559dde459e55ecd433c767e06d139ddf16cab"
+      sha256: "6382ce712ff69b0f719640ce957559dde459e55ecd433c767e06d139ddf16cab"
       url: "https://pub.dev"
     source: hosted
+    version: "2.0.29"
     version: "2.0.29"
   flutter_spinkit:
     dependency: "direct main"
@@ -277,8 +281,10 @@ packages:
     description:
       name: google_fonts
       sha256: df9763500dadba0155373e9cb44e202ce21bd9ed5de6bdbd05c5854e86839cb8
+      sha256: df9763500dadba0155373e9cb44e202ce21bd9ed5de6bdbd05c5854e86839cb8
       url: "https://pub.dev"
     source: hosted
+    version: "6.3.0"
     version: "6.3.0"
   google_identity_services_web:
     dependency: transitive
@@ -333,8 +339,10 @@ packages:
     description:
       name: http
       sha256: bb2ce4590bc2667c96f318d68cac1b5a7987ec819351d32b1c987239a815e007
+      sha256: bb2ce4590bc2667c96f318d68cac1b5a7987ec819351d32b1c987239a815e007
       url: "https://pub.dev"
     source: hosted
+    version: "1.5.0"
     version: "1.5.0"
   http_parser:
     dependency: "direct main"
@@ -365,8 +373,10 @@ packages:
     description:
       name: image_picker_android
       sha256: b08e9a04d0f8d91f4a6e767a745b9871bfbc585410205c311d0492de20a7ccd6
+      sha256: b08e9a04d0f8d91f4a6e767a745b9871bfbc585410205c311d0492de20a7ccd6
       url: "https://pub.dev"
     source: hosted
+    version: "0.8.12+25"
     version: "0.8.12+25"
   image_picker_for_web:
     dependency: transitive
@@ -437,24 +447,30 @@ packages:
     description:
       name: leak_tracker
       sha256: "8dcda04c3fc16c14f48a7bb586d4be1f0d1572731b6d81d51772ef47c02081e0"
+      sha256: "8dcda04c3fc16c14f48a7bb586d4be1f0d1572731b6d81d51772ef47c02081e0"
       url: "https://pub.dev"
     source: hosted
+    version: "11.0.1"
     version: "11.0.1"
   leak_tracker_flutter_testing:
     dependency: transitive
     description:
       name: leak_tracker_flutter_testing
       sha256: "1dbc140bb5a23c75ea9c4811222756104fbcd1a27173f0c34ca01e16bea473c1"
+      sha256: "1dbc140bb5a23c75ea9c4811222756104fbcd1a27173f0c34ca01e16bea473c1"
       url: "https://pub.dev"
     source: hosted
+    version: "3.0.10"
     version: "3.0.10"
   leak_tracker_testing:
     dependency: transitive
     description:
       name: leak_tracker_testing
       sha256: "8d5a2d49f4a66b49744b23b018848400d23e54caf9463f4eb20df3eb8acb2eb1"
+      sha256: "8d5a2d49f4a66b49744b23b018848400d23e54caf9463f4eb20df3eb8acb2eb1"
       url: "https://pub.dev"
     source: hosted
+    version: "3.0.2"
     version: "3.0.2"
   lints:
     dependency: transitive
@@ -597,8 +613,10 @@ packages:
     description:
       name: shared_preferences_android
       sha256: "5bcf0772a761b04f8c6bf814721713de6f3e5d9d89caf8d3fe031b02a342379e"
+      sha256: "5bcf0772a761b04f8c6bf814721713de6f3e5d9d89caf8d3fe031b02a342379e"
       url: "https://pub.dev"
     source: hosted
+    version: "2.4.11"
     version: "2.4.11"
   shared_preferences_foundation:
     dependency: transitive
@@ -698,8 +716,10 @@ packages:
     description:
       name: test_api
       sha256: "522f00f556e73044315fa4585ec3270f1808a4b186c936e612cab0b565ff1e00"
+      sha256: "522f00f556e73044315fa4585ec3270f1808a4b186c936e612cab0b565ff1e00"
       url: "https://pub.dev"
     source: hosted
+    version: "0.7.6"
     version: "0.7.6"
   typed_data:
     dependency: transitive
@@ -714,16 +734,20 @@ packages:
     description:
       name: url_launcher
       sha256: f6a7e5c4835bb4e3026a04793a4199ca2d14c739ec378fdfe23fc8075d0439f8
+      sha256: f6a7e5c4835bb4e3026a04793a4199ca2d14c739ec378fdfe23fc8075d0439f8
       url: "https://pub.dev"
     source: hosted
+    version: "6.3.2"
     version: "6.3.2"
   url_launcher_android:
     dependency: transitive
     description:
       name: url_launcher_android
       sha256: "0aedad096a85b49df2e4725fa32118f9fa580f3b14af7a2d2221896a02cd5656"
+      sha256: "0aedad096a85b49df2e4725fa32118f9fa580f3b14af7a2d2221896a02cd5656"
       url: "https://pub.dev"
     source: hosted
+    version: "6.3.17"
     version: "6.3.17"
   url_launcher_ios:
     dependency: transitive
@@ -778,8 +802,10 @@ packages:
     description:
       name: vector_math
       sha256: d530bd74fea330e6e364cda7a85019c434070188383e1cd8d9777ee586914c5b
+      sha256: d530bd74fea330e6e364cda7a85019c434070188383e1cd8d9777ee586914c5b
       url: "https://pub.dev"
     source: hosted
+    version: "2.2.0"
     version: "2.2.0"
   vm_service:
     dependency: transitive
