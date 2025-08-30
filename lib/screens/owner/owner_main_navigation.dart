@@ -15,11 +15,13 @@ import '../../api_config.dart';
 class OwnerMainNavigation extends StatefulWidget {
   final int initialTabIndex;
   final String? selectedTruckType;
+  final bool isFromDashboard; // Add this flag
   
   const OwnerMainNavigation({
     super.key, 
     this.initialTabIndex = 0,
     this.selectedTruckType,
+    this.isFromDashboard = false, // Default to false
   });
 
   @override
@@ -94,18 +96,24 @@ class _OwnerMainNavigationState extends State<OwnerMainNavigation> with TickerPr
     ),
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedIndex = widget.initialTabIndex;
+@override
+void initState() {
+  super.initState();
+  _selectedIndex = widget.initialTabIndex;
 
-    _pages = [
-      const OwnerDashboard(),
-      const OwnerLikesPage(),
-      const OwnerPostJobPage(),
-      OwnerDriversPage(initialTruckTypeFilter: widget.selectedTruckType),
-      const OwnerProfilePage(),
-    ];
+  // Initialize pages with proper parameters
+  _pages = [
+    const OwnerDashboard(),
+    const OwnerLikesPage(),
+    const OwnerPostJobPage(),
+    // Pass both the filter and the source information correctly
+    OwnerDriversPage(
+      initialTruckTypeFilter: widget.selectedTruckType,
+      isFromDashboard: widget.isFromDashboard,
+    ),
+    const OwnerProfilePage(),
+  ];
+
 
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -183,36 +191,48 @@ class _OwnerMainNavigationState extends State<OwnerMainNavigation> with TickerPr
       return false;
     }
   }
+void _onItemTapped(int index) async {
+  // Check profile status for Post and Profile tabs
+  if (index == 2 || index == 4) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
 
-  void _onItemTapped(int index) async {
-    // Check profile status for Post and Profile tabs
-    if (index == 2 || index == 4) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+    final completed = await _checkProfileStatus();
+
+    if (mounted) Navigator.of(context).pop();
+
+    if (!completed) {
+      final updated = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
       );
-
-      final completed = await _checkProfileStatus();
-
-      if (mounted) Navigator.of(context).pop();
-
-      if (!completed) {
-        final updated = await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const OwnerProfileSetupPage()),
-        );
-        if (updated != true) return;
-      }
+      if (updated != true) return;
     }
+  }
 
-    _animationController.forward().then((_) => _animationController.reverse());
-    _rippleController.forward().then((_) => _rippleController.reset());
-
+  // For Drivers tab, always recreate the page to ensure proper state
+  if (index == 3) {
+    setState(() {
+      _selectedIndex = index;
+      // Recreate the Drivers page with appropriate parameters
+      _pages[3] = OwnerDriversPage(
+        initialTruckTypeFilter: index == 3 ? null : widget.selectedTruckType,
+        isFromDashboard: index == 3 ? false : widget.isFromDashboard,
+      );
+    });
+  } else {
     setState(() {
       _selectedIndex = index;
     });
   }
+
+  _animationController.forward().then((_) => _animationController.reverse());
+  _rippleController.forward().then((_) => _rippleController.reset());
+}
+
 
   @override
   Widget build(BuildContext context) {

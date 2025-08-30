@@ -1,504 +1,342 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:truckmate_app/screens/welcome_page.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:intl/intl.dart';
-import 'package:truckmate_app/services/auth_service.dart'; // NEW: Import AuthService
-
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:truckmate_app/api_config.dart';
-import 'package:truckmate_app/screens/login_page.dart';
+import 'package:truckmate_app/screens/driver/edit_driver_profile_page.dart';
+import 'package:truckmate_app/screens/welcome_page.dart';
+import 'package:truckmate_app/services/auth_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'driver_profile_setup.dart';
-import 'edit_driver_profile_page.dart';
 
 class DriverProfilePage extends StatefulWidget {
-  const DriverProfilePage({super.key});
+  final Map<String, dynamic> userData;
+
+  const DriverProfilePage({Key? key, required this.userData}) : super(key: key);
 
   @override
-  State<DriverProfilePage> createState() => _DriverProfilePageState();
+  _DriverProfilePageState createState() => _DriverProfilePageState();
 }
 
-class _DriverProfilePageState extends State<DriverProfilePage> {
-  bool isLoading = true;
-    bool isResubmitting = false; // Add this for resubmit loading state
+class _DriverProfilePageState extends State<DriverProfilePage> with SingleTickerProviderStateMixin {
+  Map<String, dynamic>? _profileData;
+  Map<String, dynamic>? _currentUserData;
+  bool _isLoading = true;
+  String? _errorMessage;
+  bool _isProfileComplete = false;
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  bool _isLoggingOut = false;
+  
+  // *** Availability toggle state ***
+  bool _isAvailable = false;
+  bool _isUpdatingAvailability = false;
 
-  Map<String, dynamic> userData = {};
-  Map<String, dynamic> profileData = {};
-  String? errorMessage;
-
-  // Updated vibrant color scheme with cyan/teal instead of green
-  static const Color primaryColor = Color(0xFF00BCD4); // Changed from green to cyan
+  // Enhanced Material Design Colors matching owner side
+  static const Color primaryColor = Color(0xFF00BCD4); // Cyan
   static const Color secondaryColor = Color(0xFF1976D2); // Blue
   static const Color accentColor = Color(0xFFFF6F00); // Orange
   static const Color errorColor = Color(0xFFD32F2F); // Red
-  static const Color successColor = Color(0xFF26C6DA); // Changed from green to light cyan
+  static const Color successColor = Color(0xFF26C6DA); // Light cyan
   static const Color warningColor = Color(0xFFF57C00); // Warning Orange
   static const Color cardColor = Color(0xFFF8F9FA);
-  static const Color gradientStart = Color(0xFF667eea);
-  static const Color gradientEnd = Color(0xFF764ba2);
+  static const Color surfaceColor = Color(0xFFF5F7FA);
+  final Color quickActionColor = Colors.teal;
+  final Color buttonColor = Colors.deepPurple;
+  final Color supportColor = const Color.fromARGB(255, 25, 219, 164);
 
   @override
   void initState() {
     super.initState();
-    fetchDriverProfile();
+    _currentUserData = widget.userData;
+    _loadProfileData();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 650),
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut)
+        .drive(Tween(begin: 0.0, end: 1.0));
   }
 
-  Future<void> _updateAvailability(bool isAvailable) async {
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
+  }
+
+  // *** NEW: Launch URL method for Support & Tutorial links ***
+  Future<void> _launchURL(String url) async {
+    try {
+      final Uri uri = Uri.parse(url);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw 'Could not launch $url';
+      }
+    } catch (e) {
+      _showError("Could not open link: $e");
+    }
+  }
+
+  Future<void> _resubmitVerification() async {
+  try {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
     
-    if (token == null) return;
-
-    try {
-      final response = await http.patch(
-        Uri.parse(ApiConfig.updateAvailability),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $token",
-        },
-        body: jsonEncode({
-          "isAvailable": isAvailable,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        setState(() {
-          userData['isAvailable'] = isAvailable;
-        });
-        _showSnackBar(
-          isAvailable 
-              ? "🟢 You're now available for jobs" 
-              : "🔴 You're not available for jobs",
-          isAvailable ? successColor : warningColor,
-        );
-      }
-    } catch (e) {
-      _showSnackBar("❌ Failed to update availability", errorColor);
-      setState(() {
-        userData['isAvailable'] = !isAvailable;
-      });
-    }
-  }
-
-  void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              color == successColor ? Icons.check_circle : Icons.error,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-Future<void> fetchDriverProfile() async {
-  final prefs = await SharedPreferences.getInstance();
-  // NEW: Get fresh token
-  final token = await AuthService.getFreshAuthToken();
-  if (token == null) {
-    setState(() {
-      isLoading = false;
-      errorMessage = "Token missing. Please log in.";
-    });
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.pushReplacementNamed(context, '/login');
-    });
-    return;
-  }
-
-  try {
-    final userResponse = await http.get(
-      Uri.parse(ApiConfig.authMe),
-      headers: {"Authorization": "Bearer $token"},
-    );
-    if (userResponse.statusCode != 200) {
-      throw Exception("Failed to fetch user data: ${userResponse.statusCode}");
+    if (token == null) {
+      _showError("Authentication token missing");
+      return;
     }
 
-    final profileResponse = await http.get(
-      Uri.parse(ApiConfig.driverProfile),
-      headers: {"Authorization": "Bearer $token"},
+    _showSuccess("Resubmitting verification request...");
+
+    final response = await http.post(
+      Uri.parse(ApiConfig.resubmitVerification),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
     );
-    if (profileResponse.statusCode == 200) {
-      setState(() {
-        userData = jsonDecode(userResponse.body);
-        profileData = jsonDecode(profileResponse.body);
-        isLoading = false;
-      });
-    } else if (profileResponse.statusCode == 404) {
-      setState(() {
-        userData = jsonDecode(userResponse.body);
-        isLoading = false;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DriverProfileSetupPage(userData: userData),
-          ),
-        );
-      });
+
+    if (response.statusCode == 201) {
+      _showSuccess("Verification resubmitted successfully!");
+      // Reload profile data to update status
+      _loadProfileData();
     } else {
-      throw Exception("Failed to fetch profile: ${profileResponse.statusCode}");
+      final data = jsonDecode(response.body);
+      _showError(data['error'] ?? 'Failed to resubmit verification');
     }
   } catch (e) {
-    setState(() {
-      isLoading = false;
-      errorMessage = "Error: ${e.toString()}";
-    });
-    debugPrint("Profile fetch error: $e");
+    _showError("Error resubmitting verification: ${e.toString()}");
   }
 }
 
+  Future<void> _loadProfileData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      if (token == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Authentication token missing";
+        });
+        return;
+      }
+
+      // Load profile data (will return user data with N/A if profile not complete)
+      final response = await http.get(
+        Uri.parse(ApiConfig.driverProfile),
+        headers: {
+          "Authorization": "Bearer $token",
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        setState(() {
+          _profileData = responseData['profile'];
+          _isProfileComplete = _profileData?['profileCompleted'] == true;
+          _isAvailable = _profileData?['isAvailable'] ?? false;
+          _isLoading = false;
+        });
+        _fadeController.forward();
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Failed to load profile: ${response.statusCode}";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "Error loading profile: ${e.toString()}";
+      });
+    }
+  }
+
+  // *** Update availability toggle ***
+  Future<void> _updateAvailability(bool newValue) async {
+    if (_isUpdatingAvailability) return;
+
+    setState(() {
+      _isUpdatingAvailability = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      
+      if (token == null) {
+        _showError("Authentication token missing");
+        return;
+      }
+
+      print('🔄 Updating availability to: $newValue');
+
+      final response = await http.patch(
+        Uri.parse(ApiConfig.updateAvailability),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode({"isAvailable": newValue}),
+      );
+
+      print('📥 Response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isAvailable = newValue;
+          if (_profileData != null) {
+            _profileData!['isAvailable'] = newValue;
+          }
+        });
+        
+        _showSuccess(newValue 
+            ? "You are now available for job opportunities!" 
+            : "You are now unavailable for jobs");
+      } else {
+        final data = jsonDecode(response.body);
+        _showError(data['error'] ?? 'Failed to update availability');
+      }
+    } catch (e) {
+      print('❌ Availability update error: $e');
+      _showError("Failed to update availability: ${e.toString()}");
+    } finally {
+      setState(() {
+        _isUpdatingAvailability = false;
+      });
+    }
+  }
+
   void _navigateToEditProfile() {
+    if (_profileData != null && _currentUserData != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EditDriverProfilePage(
+            profileData: _profileData!,
+            userData: _currentUserData!,
+          ),
+        ),
+      ).then((_) {
+        _loadProfileData();
+      });
+    }
+  }
+
+  void _navigateToProfileSetup() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditDriverProfilePage(
-          profileData: profileData,
-          userData: userData,
+        builder: (context) => DriverProfileSetupPage(
+          userData: _currentUserData ?? {},
         ),
       ),
     ).then((_) {
-      fetchDriverProfile();
+      _loadProfileData();
     });
   }
-Widget _buildVerificationStatus() {
-    final verificationStatus = profileData['verificationStatus'] ?? 'pending';
-    
-    Color statusColor;
-    IconData statusIcon;
-    String statusText;
-    String statusDescription;
-    
-    switch (verificationStatus) {
-      case 'approved':
-        statusColor = successColor;
-        statusIcon = Icons.verified;
-        statusText = 'Verified Driver';
-        statusDescription = 'Your profile has been verified and approved';
-        break;
-      case 'rejected':
-        statusColor = errorColor;
-        statusIcon = Icons.cancel;
-        statusText = 'Verification Rejected';
-        statusDescription = 'Your profile was rejected. Please update and resubmit.';
-        break;
-      case 'pending':
-      default:
-        statusColor = warningColor;
-        statusIcon = Icons.pending;
-        statusText = 'Verification Pending';
-        statusDescription = 'Your profile is under review by our team';
+
+  // *** FIXED: Complete logout function ***
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+
+    // Show confirmation dialog
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?\n\nYou will need to sign in again to access your account.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout != true) return;
+
+    setState(() {
+      _isLoggingOut = true;
+    });
+
+    try {
+      print('🚪 Starting logout process...');
+
+      // 1. Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      print('✅ Firebase signout successful');
+
+      // 2. Clear local authentication data
+      await AuthService.clearAuthData();
+      print('✅ Local auth data cleared');
+
+      // 3. Clear SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      print('✅ SharedPreferences cleared');
+
+      // 4. Show success message
+      if (mounted) {
+        _showSuccess("Logged out successfully");
+      }
+
+      // 5. Navigate to welcome page with delay
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const WelcomePage()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      print('❌ Logout error: $e');
+      if (mounted) {
+        _showError("Logout failed: ${e.toString()}");
+        setState(() {
+          _isLoggingOut = false;
+        });
+      }
     }
-
-    return _buildGradientCard(
-      startColor: statusColor.withOpacity(0.1),
-      endColor: Colors.white,
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  statusIcon,
-                  color: statusColor,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      statusDescription,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          
-          // Show rejection details and resubmit button for rejected status
-          if (verificationStatus == 'rejected') ...[
-            const SizedBox(height: 16),
-            
-            // Rejection reason container
-            if (profileData['rejectionReason'] != null && 
-                profileData['rejectionReason'].toString().isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: errorColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: errorColor.withOpacity(0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.info, color: errorColor, size: 16),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Rejection Reason:',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: errorColor,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      profileData['rejectionReason'].toString(),
-                      style: TextStyle(
-                        color: Colors.grey[700],
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            
-            // Resubmit button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: isResubmitting ? null : _resubmitVerification,
-                icon: isResubmitting 
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Icon(Icons.refresh, size: 18),
-                label: Text(
-                  isResubmitting ? 'Resubmitting...' : 'Resubmit for Verification',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey.shade300,
-                  disabledForegroundColor: Colors.grey.shade600,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  elevation: 2,
-                ),
-              ),
-            ),
-            
-            // Additional help text
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.blue.withOpacity(0.2)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.lightbulb_outline, color: Colors.blue, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Make sure to update any incorrect information before resubmitting.',
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          
-          // Show info for pending status
-          if (verificationStatus == 'pending') ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: warningColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: warningColor.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info, color: warningColor, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'You cannot access jobs and likes until your profile is approved.',
-                      style: TextStyle(
-                        color: Colors.grey[700],
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          
-          // Show success message for approved status
-          if (verificationStatus == 'approved') ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: successColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: successColor.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle, color: successColor, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'You can now access all features including jobs and likes.',
-                      style: TextStyle(
-                        color: Colors.grey[700],
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 
-
-  Widget _buildProfileAvatar() {
-    String? profilePhotoUrl = profileData["profilePhoto"];
-    String? googlePhotoUrl = userData['photoUrl'];
-    
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)], // Updated gradient colors
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.3), // Updated shadow color
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(4),
-      child: CircleAvatar(
-        radius: 65,
-        backgroundColor: Colors.white,
-        child: CircleAvatar(
-          radius: 60,
-          backgroundColor: Colors.grey[100],
-          child: profilePhotoUrl != null && profilePhotoUrl.isNotEmpty
-              ? ClipOval(
-                  child: Image.network(
-                    profilePhotoUrl,
-                    height: 120,
-                    width: 120,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      if (googlePhotoUrl != null && googlePhotoUrl.isNotEmpty) {
-                        return Image.network(
-                          googlePhotoUrl,
-                          height: 120,
-                          width: 120,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(Icons.person, size: 60, color: Colors.grey[600]);
-                          },
-                        );
-                      }
-                      return Icon(Icons.person, size: 60, color: Colors.grey[600]);
-                    },
-                  ),
-                )
-              : googlePhotoUrl != null && googlePhotoUrl.isNotEmpty
-                  ? ClipOval(
-                      child: Image.network(
-                        googlePhotoUrl,
-                        height: 120,
-                        width: 120,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Icon(Icons.person, size: 60, color: Colors.grey[600]);
-                        },
-                      ),
-                    )
-                  : Icon(Icons.person, size: 60, color: Colors.grey[600]),
-        ),
-      ),
-    );
+      );
+    }
   }
 
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  // Build gradient card widget matching owner side
   Widget _buildGradientCard({
     required Widget child,
     Color? startColor,
@@ -532,7 +370,7 @@ Widget _buildVerificationStatus() {
     );
   }
 
-  Widget _infoTile(String label, String value, {IconData? icon, Color? iconColor}) {
+  Widget _buildInfoTile(String label, String value, {IconData? icon, Color? iconColor}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -574,21 +412,23 @@ Widget _buildVerificationStatus() {
                 const SizedBox(height: 4),
                 Text(
                   value,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    color: value == 'N/A' ? Colors.grey : Colors.black87,
+                    fontStyle: value == 'N/A' ? FontStyle.italic : FontStyle.normal,
                   ),
                 ),
               ],
             ),
           ),
+          
         ],
       ),
     );
   }
 
-  Widget _infoSection(String title, List<Widget> children, {IconData? titleIcon, Color? titleColor}) {
+  Widget _buildInfoSection(String title, List<Widget> children, {IconData? titleIcon, Color? titleColor}) {
     return _buildGradientCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -630,289 +470,410 @@ Widget _buildVerificationStatus() {
     );
   }
 
-  Future<void> _launchTutorial() async {
-    final Uri url = Uri.parse('https://youtube.com');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
-Future _resubmitVerification() async {
-  setState(() => isResubmitting = true);
-  
-  try {
-    // Get fresh token using AuthService
-    final token = await AuthService.getFreshAuthToken();
-    if (token == null) {
-      _showSnackBar("❌ Authentication required. Please login again.", errorColor);
-      return;
+  Widget _buildPhotoSection(String label, String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: const Center(
+                child: Text(
+                  'N/A',
+                  style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
     }
 
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/api/verification/resubmit'),
-      headers: {
-        "Authorization": "Bearer $token", // Use actual token
-        "Content-Type": "application/json",
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _FullscreenImageViewer(imageUrl: imageUrl),
+            ),
+          ),
+          child: Container(
+            height: 200,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => const Center(
+                  child: Icon(Icons.error_outline, color: Colors.red),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
-
-    if (response.statusCode == 201) {
-      _showSnackBar("✅ Verification resubmitted successfully!", successColor);
-      _showResubmitSuccessDialog();
-      // Refresh profile data
-      await fetchDriverProfile();
-    } else {
-      final errorData = jsonDecode(response.body);
-      final error = errorData['error'] ?? 'Failed to resubmit verification';
-      _showSnackBar("❌ $error", errorColor);
-    }
-  } catch (e) {
-    _showSnackBar("❌ Network error: ${e.toString()}", errorColor);
-  } finally {
-    if (mounted) {
-      setState(() => isResubmitting = false);
-    }
   }
-}
 
- // Success dialog after resubmit
-  void _showResubmitSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          title: Row(
+  Widget _buildVerificationStatusCard() {
+    if (!_isProfileComplete) return const SizedBox.shrink();
+
+    final status = _profileData?['verificationStatus'] ?? 'pending';
+    final rejectionReason = _profileData?['rejectionReason'] ?? '';
+    
+    return _buildGradientCard(
+      startColor: _getVerificationColor(status).withOpacity(0.1),
+      endColor: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Icon(Icons.check_circle, color: successColor, size: 28),
+              Icon(
+                _getVerificationIcon(status),
+                color: _getVerificationColor(status),
+              ),
               const SizedBox(width: 12),
-              const Text(
-                'Resubmitted Successfully',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  "Verification Status: ${status.toString().toUpperCase()}",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _getVerificationColor(status),
+                  ),
+                ),
               ),
             ],
           ),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          const SizedBox(height: 8),
+          if (status == 'pending')
+            const Text(
+              "Your profile is under admin review",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          if (status == 'approved')
+            const Text(
+              "You can now access job opportunities",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          if (status == 'rejected') ...[
+            if (rejectionReason.isNotEmpty)
               Text(
-                'Your verification has been resubmitted for review.',
-                style: TextStyle(fontSize: 16),
+                "Reason: $rejectionReason",
+                style: const TextStyle(fontSize: 12, color: Colors.red),
               ),
-              SizedBox(height: 12),
-              Text(
-                '• Our team will review your profile again\n'
-                '• You will be notified once the review is complete\n'
-                '• This usually takes 1-2 business days',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-            ],
-          ),
-          actions: [
+            const SizedBox(height: 12),
             ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+              onPressed: _resubmitVerification,
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
               ),
-              child: const Text('Got it'),
+              child: const Text("Resubmit for Verification"),
             ),
           ],
-        );
-      },
+        ],
+      ),
     );
   }
 
-  Future<void> _logout() async {
-    final bool? shouldLogout = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.white,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: errorColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.logout, color: errorColor, size: 24),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              "Logout Confirmation",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-                color: Colors.black87,
-              ),
-            ),
-          ],
-        ),
-        content: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+  // *** Availability toggle widget for approved drivers ***
+  Widget _buildAvailabilityToggle() {
+    final status = _profileData?['verificationStatus'] ?? 'pending';
+    
+    // Only show for approved drivers
+    if (status != 'approved' || !_isProfileComplete) {
+      return const SizedBox.shrink();
+    }
+
+    return _buildGradientCard(
+      startColor: Colors.blue[50],
+      endColor: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Text(
-                "Are you sure you want to logout?",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              Icon(
+                Icons.work_outline,
+                color: Colors.blue[700],
+                size: 24,
               ),
-              SizedBox(height: 12),
+              const SizedBox(width: 8),
               Text(
-                "You will need to sign in again to access your account and continue receiving job notifications.",
+                "Job Availability",
                 style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[700],
                 ),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isAvailable ? "Available for Jobs" : "Not Available",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: _isAvailable ? Colors.green[700] : Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _isAvailable 
+                          ? "You will receive job notifications"
+                          : "You won't receive job notifications",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            child: Text(
-              "Cancel",
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
+              const SizedBox(width: 16),
+              _isUpdatingAvailability
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Switch(
+                      value: _isAvailable,
+                      onChanged: _updateAvailability,
+                      activeColor: Colors.white,
+                      activeTrackColor: Colors.green,
+                      inactiveThumbColor: Colors.white,
+                      inactiveTrackColor: Colors.grey[400],
+                    ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: errorColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+        ],
+      ),
+    );
+  }
+
+  // *** NEW: Support & Help Card ***
+  Widget _buildSupportHelpCard() {
+    return _buildGradientCard(
+      startColor: Colors.teal[50],
+      endColor: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.support_agent_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
               ),
-              elevation: 2,
+              const SizedBox(width: 12),
+              Text(
+                "Support & Help",
+                style: TextStyle(
+                  color: Colors.teal[700],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-            child: const Text(
-              "Logout",
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.teal[100],
+                    child: Icon(Icons.phone, color: Colors.teal[700]),
+                  ),
+                  title: Text(
+                    "Phone Support",
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    "+91 9629452526",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+                  onTap: () => _launchURL("tel:9629452526"),
+                ),
+                Divider(height: 1, color: Colors.grey[200]),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.teal[100],
+                    child: Icon(Icons.email_rounded, color: Colors.teal[700]),
+                  ),
+                  title: Text(
+                    "Email Support",
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    "cogo2025@gamil.com",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+                  onTap: () => _launchURL("mailto:cogo2025@gmail.com"),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
 
-    if (shouldLogout == true) {
-      try {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => Center(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                    strokeWidth: 3,
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    "Logging out...",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  Widget _buildProfileAvatar() {
+    String? profilePhoto = _profileData?['profilePhoto'];
+    String? userPhotoUrl = _profileData?['userPhotoUrl'];
+    
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
-        );
-
-        final prefs = await SharedPreferences.getInstance();
-        
-        await prefs.remove('authToken');
-        await prefs.remove('userRole');
-        await prefs.remove('userId');
-        await prefs.remove('userName');
-        await prefs.remove('userEmail');
-        await prefs.remove('userPhone');
-        await prefs.remove('ownerProfileCompleted');
-        await prefs.remove('driverProfileCompleted');
-        await prefs.remove('ownerCompanyName');
-        await prefs.remove('driverLicenseType');
-        await prefs.remove('userData');
-
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-
-        await Future.delayed(const Duration(milliseconds: 100));
-
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const WelcomePage()),
-            (route) => false,
-          );
-        }
-
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) {
-            _showSnackBar("✅ Logged out successfully", successColor);
-          }
-        });
-
-      } catch (e) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          _showSnackBar("❌ Logout failed: ${e.toString()}", errorColor);
-        }
-      }
-    }
+        ],
+      ),
+      padding: const EdgeInsets.all(4),
+      child: CircleAvatar(
+        radius: 65,
+        backgroundColor: Colors.white,
+        child: CircleAvatar(
+          radius: 60,
+          backgroundColor: Colors.grey[100],
+          child: ClipOval(
+            child: profilePhoto != null && profilePhoto.isNotEmpty
+                ? Image.network(
+                    profilePhoto,
+                    height: 120,
+                    width: 120,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      if (userPhotoUrl != null && userPhotoUrl.isNotEmpty) {
+                        return Image.network(
+                          userPhotoUrl,
+                          height: 120,
+                          width: 120,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(Icons.person, size: 60, color: Colors.grey[600]);
+                          },
+                        );
+                      }
+                      return Icon(Icons.person, size: 60, color: Colors.grey);
+                    },
+                  )
+                : userPhotoUrl != null && userPhotoUrl.isNotEmpty
+                    ? Image.network(
+                        userPhotoUrl,
+                        height: 120,
+                        width: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(Icons.person, size: 60, color: Colors.grey);
+                        },
+                      )
+                    : Icon(Icons.person, size: 60, color: Colors.grey),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: surfaceColor,
       appBar: AppBar(
-        title: const Text(
-          "Driver Profile",
+        title: Text(
+          'Driver Profile',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 22,
@@ -925,35 +886,52 @@ Future _resubmitVerification() async {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)], // Updated gradient
+              colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
           ),
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(10),
+          if (_isProfileComplete && !_isLoggingOut)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.white),
                 ),
-                child: const Icon(Icons.edit, color: Colors.white),
+                onPressed: _navigateToEditProfile,
+                tooltip: "Edit Profile",
               ),
-              onPressed: _navigateToEditProfile,
-              tooltip: "Edit Profile",
             ),
-          ),
+          if (!_isLoggingOut)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.refresh, color: Colors.white),
+                ),
+                onPressed: _loadProfileData,
+                tooltip: "Refresh",
+              ),
+            ),
         ],
       ),
-      body: isLoading
+      body: _isLoading
           ? Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFFF5F7FA), Colors.white],
+                  colors: [surfaceColor, Colors.white],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                 ),
@@ -963,7 +941,7 @@ Future _resubmitVerification() async {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                      valueColor: AlwaysStoppedAnimation(primaryColor),
                       strokeWidth: 3,
                     ),
                     SizedBox(height: 20),
@@ -979,11 +957,11 @@ Future _resubmitVerification() async {
                 ),
               ),
             )
-          : errorMessage != null
+          : _errorMessage != null
               ? Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color(0xFFF5F7FA), Colors.white],
+                      colors: [surfaceColor, Colors.white],
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                     ),
@@ -1013,7 +991,7 @@ Future _resubmitVerification() async {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            errorMessage!,
+                            _errorMessage!,
                             style: const TextStyle(
                               color: Colors.black87,
                               fontSize: 16,
@@ -1023,7 +1001,7 @@ Future _resubmitVerification() async {
                           ),
                           const SizedBox(height: 24),
                           ElevatedButton.icon(
-                            onPressed: fetchDriverProfile,
+                            onPressed: _loadProfileData,
                             icon: const Icon(Icons.refresh),
                             label: const Text("Retry"),
                             style: ElevatedButton.styleFrom(
@@ -1043,527 +1021,292 @@ Future _resubmitVerification() async {
                     ),
                   ),
                 )
-              : Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFFF5F7FA), Colors.white],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+              : FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [surfaceColor, Colors.white],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
                     ),
-                  ),
-                  child: ListView(
-                    padding: const EdgeInsets.all(20),
-                    children: [
-                      // Availability Switch Card
-                      _buildGradientCard(
-                        startColor: userData['isAvailable'] == true 
-                            ? successColor.withOpacity(0.1) 
-                            : warningColor.withOpacity(0.1),
-                        endColor: Colors.white,
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: userData['isAvailable'] == true 
-                                    ? successColor.withOpacity(0.1) 
-                                    : warningColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                userData['isAvailable'] == true 
-                                    ? Icons.work 
-                                    : Icons.work_off,
-                                color: userData['isAvailable'] == true 
-                                    ? successColor 
-                                    : warningColor,
-                                size: 28,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Job Availability',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey[800],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    userData['isAvailable'] == true 
-                                        ? 'You are available for jobs' 
-                                        : 'You are not available',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Transform.scale(
-                              scale: 1.2,
-                              child: Switch(
-                                value: userData['isAvailable'] ?? true,
-                                onChanged: (value) => _updateAvailability(value),
-                                activeColor: successColor,
-                                activeTrackColor: successColor.withOpacity(0.3),
-                                inactiveThumbColor: warningColor,
-                                inactiveTrackColor: warningColor.withOpacity(0.3),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      // Profile Avatar Section
-                      Center(
-                        child: Column(
-                          children: [
-                            _buildProfileAvatar(),
-                            const SizedBox(height: 12),
-                            Text(
-                              userData["name"] ?? "Driver",
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)], // Updated gradient
-                                ),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: const Text(
-                                "Professional Driver",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            if (profileData["profilePhoto"] != null && profileData["profilePhoto"].isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  "Profile Photo",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      
-                      // Personal Information Section
-                      _infoSection(
-                        "Personal Information",
-                        [
-                          _infoTile("Full Name", userData["name"] ?? "N/A", 
-                              icon: Icons.person, iconColor: secondaryColor),
-                          _infoTile("Email Address", userData["email"] ?? "N/A", 
-                              icon: Icons.email, iconColor: accentColor),
-                          _infoTile("Phone Number", userData["phone"] ?? "N/A", 
-                              icon: Icons.phone, iconColor: successColor),
-                          _infoTile("Age", "${profileData["age"] ?? "N/A"} years", 
-                              icon: Icons.cake, iconColor: warningColor),
-                          _infoTile("Gender", profileData["gender"] ?? "N/A", 
-                              icon: Icons.wc, iconColor: primaryColor),
-                          _infoTile("Location", profileData["location"] ?? "N/A", 
-                              icon: Icons.location_on, iconColor: errorColor),
-                        ],
-                        titleIcon: Icons.account_circle,
-                        titleColor: secondaryColor,
-                      ),
-                      
-                      // Driver Information Section
-                      _infoSection(
-                        "Driver Credentials",
-                        [
-                          _infoTile("Experience", "${profileData["experience"] ?? "N/A"} years", 
-                              icon: Icons.timeline, iconColor: primaryColor),
-                          _infoTile("License Type", profileData["licenseType"] ?? "N/A", 
-                              icon: Icons.credit_card, iconColor: successColor),
-                          _infoTile("License Number", profileData["licenseNumber"] ?? "N/A", 
-                              icon: Icons.numbers, iconColor: secondaryColor),
-                          _infoTile(
-                            "License Expiry", 
-                            profileData["licenseExpiryDate"] != null 
-                                ? DateFormat('dd MMM yyyy').format(DateTime.parse(profileData["licenseExpiryDate"]))
-                                : "N/A",
-                            icon: Icons.event,
-                            iconColor: warningColor,
-                          ),
-                          if (profileData["knownTruckTypes"] != null && profileData["knownTruckTypes"].isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.8),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: accentColor.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Icon(
-                                          Icons.local_shipping,
-                                          color: accentColor,
-                                          size: 20,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Text(
-                                        "Known Truck Types",
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.grey[600],
-                                          letterSpacing: 0.5,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: (profileData["knownTruckTypes"] as List)
-                                        .map((type) => Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: [
-                                                    accentColor.withOpacity(0.8),
-                                                    accentColor,
-                                                  ],
-                                                ),
-                                                borderRadius: BorderRadius.circular(20),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: accentColor.withOpacity(0.3),
-                                                    blurRadius: 4,
-                                                    offset: const Offset(0, 2),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Text(
-                                                type,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ))
-                                        .toList(),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                        titleIcon: Icons.badge,
-                        titleColor: primaryColor,
-                      ),
-                      
-                      // License Photo Section
-                      if (profileData["licensePhoto"] != null && profileData["licensePhoto"].isNotEmpty)
-                        _buildGradientCard(
+                    child: ListView(
+                      padding: const EdgeInsets.all(20),
+                      children: [
+                        // Profile Header
+                        Center(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: warningColor.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(
-                                      Icons.photo_camera,
-                                      color: warningColor,
-                                      size: 24,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    "License Photo",
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: warningColor,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
+                              _buildProfileAvatar(),
+                              const SizedBox(height: 12),
+                              Text(
+                                _profileData?['userName'] ?? _profileData?['name'] ?? 'Unknown',
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 4),
                               Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
                                 ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Image.network(
-                                    profileData["licensePhoto"],
-                                    height: 220,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        height: 220,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[100],
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              Icons.error_outline,
-                                              size: 48,
-                                              color: errorColor,
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Text(
-                                              "Failed to load license photo",
-                                              style: TextStyle(
-                                                color: Colors.grey[600],
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                    loadingBuilder: (context, child, loadingProgress) {
-                                      if (loadingProgress == null) return child;
-                                      return Container(
-                                        height: 220,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[100],
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                        child: const Center(
-                                          child: CircularProgressIndicator(
-                                            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                                          ),
-                                        ),
-                                      );
-                                    },
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF00BCD4), Color(0xFF26C6DA)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Text(
+                                  "Professional Driver",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
                                   ),
                                 ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _profileData?['userEmail'] ?? 'No email provided',
+                                style: TextStyle(color: Colors.grey[600]),
                               ),
                             ],
                           ),
                         ),
-                      
-                      // Support Section
-                      _infoSection(
-                        "Support & Help",
-                        [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  secondaryColor.withOpacity(0.1),
-                                  Colors.white,
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: secondaryColor.withOpacity(0.2),
-                              ),
-                            ),
+
+                        const SizedBox(height: 24),
+
+                        // Show setup button if profile not complete
+                        if (!_isProfileComplete) ...[
+                          _buildGradientCard(
+                            startColor: Colors.blue[50],
+                            endColor: Colors.white,
                             child: Column(
                               children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: successColor.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Icon(
-                                        Icons.phone,
-                                        color: successColor,
-                                        size: 24,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "Call Support",
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                        Text(
-                                          "1800-TRUCKMATE",
-                                          style: TextStyle(
-                                            color: Colors.grey[600],
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                const Icon(Icons.info_outline, color: Colors.blue, size: 48),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Profile Setup Required',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Complete your driver profile to access job opportunities and get verified by admin.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey),
                                 ),
                                 const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: warningColor.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Icon(
-                                        Icons.email,
-                                        color: warningColor,
-                                        size: 24,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "Email Support",
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                        Text(
-                                          "support@truckmate.app",
-                                          style: TextStyle(
-                                            color: Colors.grey[600],
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                ElevatedButton.icon(
+                                  onPressed: _navigateToProfileSetup,
+                                  icon: const Icon(Icons.edit),
+                                  label: const Text('Complete Profile Setup'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
+                          const SizedBox(height: 24),
                         ],
-                        titleIcon: Icons.support_agent,
-                        titleColor: secondaryColor,
-                      ),
-                      
-                      // Action Buttons
-                      Container(
-                        margin: const EdgeInsets.symmetric(vertical: 8),
-                        child: ElevatedButton.icon(
-                          onPressed: _launchTutorial,
-                          icon: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(6),
+
+                        // Verification Status (only show if profile complete)
+                        _buildVerificationStatusCard(),
+
+                        // Availability Toggle (only for approved drivers)
+                        _buildAvailabilityToggle(),
+
+                        // Personal Information
+                        _buildInfoSection(
+                          "Personal Information",
+                          [
+                            _buildInfoTile("Name", _profileData?['userName'] ?? _profileData?['name'] ?? "Not specified", 
+                                icon: Icons.person, iconColor: secondaryColor),
+                            _buildInfoTile("Phone", _profileData?['userPhone'] ?? "Not provided", 
+                                icon: Icons.phone, iconColor: successColor),
+                            _buildInfoTile("Gender", _profileData?['gender']?.toString() ?? "N/A", 
+                                icon: Icons.wc, iconColor: primaryColor),
+                            _buildInfoTile("Age", _profileData?['age']?.toString() ?? "N/A", 
+                                icon: Icons.cake, iconColor: accentColor),
+                            _buildInfoTile("Location", _profileData?['location']?.toString() ?? "N/A", 
+                                icon: Icons.location_on, iconColor: errorColor),
+                          ],
+                          titleIcon: Icons.account_circle,
+                          titleColor: secondaryColor,
+                        ),
+
+                        // Driver Information
+                        _buildInfoSection(
+                          "Driver Information",
+                          [
+                            _buildInfoTile("Experience", (_profileData?['experience']?.toString() ?? "N/A") + (_profileData?['experience'] != "N/A" ? " years" : ""), 
+                                icon: Icons.work_history, iconColor: successColor),
+                            _buildInfoTile("License Number", _profileData?['licenseNumber']?.toString() ?? "N/A", 
+                                icon: Icons.badge, iconColor: primaryColor),
+                            _buildInfoTile(
+                              "License Expiry",
+                              _profileData?['licenseExpiryDate'] != null
+                                  ? DateFormat('yyyy-MM-dd').format(DateTime.parse(_profileData!['licenseExpiryDate']))
+                                  : "N/A",
+                              icon: Icons.calendar_today, 
+                              iconColor: warningColor
                             ),
-                            child: const Icon(Icons.play_circle, size: 20),
-                          ),
-                          label: const Text(
-                            "Watch Tutorial",
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
+                            _buildInfoTile(
+                              "Truck Types",
+                              _profileData?['knownTruckTypes'] != null && (_profileData!['knownTruckTypes'] as List).isNotEmpty
+                                  ? (_profileData!['knownTruckTypes'] as List).join(", ")
+                                  : "N/A",
+                              icon: Icons.local_shipping, 
+                              iconColor: accentColor
                             ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: secondaryColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                          ],
+                          titleIcon: Icons.drive_eta,
+                          titleColor: successColor,
+                        ),
+
+                        // Photos
+                        _buildInfoSection(
+                          "Photos",
+                          [
+                            _buildPhotoSection("License Front", _profileData?['licensePhotoFront']),
+                            _buildPhotoSection("License Back", _profileData?['licensePhotoBack']),
+                          ],
+                          titleIcon: Icons.photo_library,
+                          titleColor: accentColor,
+                        ),
+
+                        // *** NEW: Support & Help Card ***
+                        _buildSupportHelpCard(),
+
+                        const SizedBox(height: 20),
+
+                        // *** NEW: Watch Tutorial Button ***
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _launchURL("https://www.youtube.com/watch?v=exampleTutorial"),
+                            icon: const Icon(Icons.play_circle_fill_rounded, size: 24),
+                            label: const Text("Watch Tutorial"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: secondaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
-                            elevation: 4,
-                            shadowColor: secondaryColor.withOpacity(0.3),
                           ),
                         ),
-                      ),
-                      
-                      Container(
-                        margin: const EdgeInsets.symmetric(vertical: 8),
-                        child: ElevatedButton.icon(
-                          onPressed: _logout,
-                          icon: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(6),
+
+                        const SizedBox(height: 16),
+
+                        // Logout Button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _isLoggingOut ? null : _logout,
+                            icon: _isLoggingOut
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation(Colors.white),
+                                    ),
+                                  )
+                                : const Icon(Icons.logout, size: 24),
+                            label: Text(_isLoggingOut ? "Logging out..." : "Logout"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _isLoggingOut ? Colors.grey : Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
-                            child: const Icon(Icons.logout, size: 20),
-                          ),
-                          label: const Text(
-                            "Logout",
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: errorColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            elevation: 4,
-                            shadowColor: errorColor.withOpacity(0.3),
                           ),
                         ),
-                      ),
-                      
-                      const SizedBox(height: 20),
-                    ],
+
+                        const SizedBox(height: 40),
+                      ],
+                    ),
                   ),
                 ),
+    );
+  }
+
+  IconData _getVerificationIcon(String status) {
+    switch (status) {
+      case 'approved':
+        return Icons.verified;
+      case 'rejected':
+        return Icons.cancel;
+      case 'pending':
+      default:
+        return Icons.pending;
+    }
+  }
+
+  Color _getVerificationColor(String status) {
+    switch (status) {
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
+      case 'pending':
+      default:
+        return Colors.orange;
+    }
+  }
+}
+
+class _FullscreenImageViewer extends StatelessWidget {
+  final String imageUrl;
+
+  const _FullscreenImageViewer({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          panEnabled: true,
+          minScale: 0.5,
+          maxScale: 4,
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Center(
+                child: CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                      : null,
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => const Center(
+              child: Icon(Icons.error_outline, color: Colors.red, size: 48),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

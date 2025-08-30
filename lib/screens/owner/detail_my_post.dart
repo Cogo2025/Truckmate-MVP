@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:truckmate_app/api_config.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'dart:convert';
 
 class JobDetailPage extends StatefulWidget {
   final bool isEditMode;
@@ -36,8 +36,8 @@ class _JobDetailPageState extends State<JobDetailPage> {
   final TextEditingController _phoneController = TextEditingController();
 
   // Photo handling
-  List<String> existingPhotos = [];
-  List<File> newPhotos = [];
+  List<String> existingPhotoUrls = [];
+  List<XFile> newPhotos = [];
   final ImagePicker _picker = ImagePicker();
 
   // Wheels options for Body Vehicle
@@ -55,14 +55,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
     if (widget.isEditMode && widget.job != null) {
       _truckTypeController.text = widget.job!['truckType'] ?? '';
       _variantTypeController.text = widget.job!['variant']?['type'] ?? '';
-      
-      // Handle wheels type specifically for Body Vehicle
       if (widget.job!['truckType'] == "Body Vehicle") {
         _wheelsTypeController.text = widget.job!['variant']?['wheelsOrFeet'] ?? '';
       } else {
         _variantTypeController.text = widget.job!['variant']?['wheelsOrFeet'] ?? '';
       }
-      
       _sourceLocationController.text = widget.job!['sourceLocation'] ?? '';
       _experienceRequiredController.text = widget.job!['experienceRequired'] ?? '';
       _dutyTypeController.text = widget.job!['dutyType'] ?? '';
@@ -71,7 +68,8 @@ class _JobDetailPageState extends State<JobDetailPage> {
       _maxSalaryController.text = widget.job!['salaryRange']?['max']?.toString() ?? '';
       _descriptionController.text = widget.job!['description'] ?? '';
       _phoneController.text = widget.job!['phone'] ?? '';
-      existingPhotos = List<String>.from(widget.job!['lorryPhotos'] ?? []);
+      // Initialize with existing Cloudinary photo URLs
+      existingPhotoUrls = List<String>.from(widget.job!['lorryPhotos'] ?? []);
     }
   }
 
@@ -84,7 +82,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
       );
       if (images != null && images.isNotEmpty) {
         setState(() {
-          newPhotos.addAll(images.map((xfile) => File(xfile.path)));
+          newPhotos.addAll(images);
         });
       }
     } catch (e) {
@@ -96,7 +94,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
   void _removeExistingPhoto(int index) {
     setState(() {
-      existingPhotos.removeAt(index);
+      existingPhotoUrls.removeAt(index);
     });
   }
 
@@ -137,68 +135,48 @@ class _JobDetailPageState extends State<JobDetailPage> {
       };
     }
 
-    final jobData = {
-      'truckType': _truckTypeController.text,
-      'variant': variantData,
-      'sourceLocation': _sourceLocationController.text,
-      'experienceRequired': _experienceRequiredController.text,
-      'dutyType': _dutyTypeController.text,
-      'salaryType': _salaryTypeController.text,
-      'salaryRange': {
-        'min': int.tryParse(_minSalaryController.text) ?? 0,
-        'max': int.tryParse(_maxSalaryController.text) ?? 0,
-      },
-      'description': _descriptionController.text,
-      'phone': _phoneController.text,
-      'lorryPhotos': existingPhotos,
-    };
-
     try {
-      http.Response res;
-      if (widget.isEditMode && widget.job != null) {
-        res = await http.patch(
-          Uri.parse('${ApiConfig.jobs}/${widget.job!['_id']}'),
-          headers: {
-            "Authorization": "Bearer $token",
-            "Content-Type": "application/json",
-          },
-          body: jsonEncode(jobData),
-        );
-      } else {
-        res = await http.post(
-          Uri.parse(ApiConfig.jobs),
-          headers: {
-            "Authorization": "Bearer $token",
-            "Content-Type": "application/json",
-          },
-          body: jsonEncode(jobData),
+      http.StreamedResponse res;
+      var uri = widget.isEditMode && widget.job != null
+          ? Uri.parse('${ApiConfig.jobs}/${widget.job!['_id']}')
+          : Uri.parse(ApiConfig.jobs);
+
+      var request = http.MultipartRequest(
+        widget.isEditMode && widget.job != null ? 'PATCH' : 'POST',
+        uri,
+      );
+      request.headers['Authorization'] = "Bearer $token";
+
+      request.fields['truckType'] = _truckTypeController.text;
+      request.fields['variant[type]'] = variantData['type'] ?? '';
+      request.fields['variant[wheelsOrFeet]'] = variantData['wheelsOrFeet'] ?? '';
+      request.fields['sourceLocation'] = _sourceLocationController.text;
+      request.fields['experienceRequired'] = _experienceRequiredController.text;
+      request.fields['dutyType'] = _dutyTypeController.text;
+      request.fields['salaryType'] = _salaryTypeController.text;
+      request.fields['salaryRange[min]'] = _minSalaryController.text;
+      request.fields['salaryRange[max]'] = _maxSalaryController.text;
+      request.fields['description'] = _descriptionController.text;
+      request.fields['phone'] = _phoneController.text;
+
+      // Add existing photo URLs (if you want to keep them)
+      for (var url in existingPhotoUrls) {
+        request.fields['existingPhotos[]'] = url;
+      }
+
+      // Attach new images
+      for (var photo in newPhotos) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'lorryPhotos',
+            photo.path,
+          ),
         );
       }
 
+      res = await request.send();
+
       if (res.statusCode == 200 || res.statusCode == 201) {
-        // Handle new photo uploads
-        if (newPhotos.isNotEmpty) {
-          final jobId = widget.isEditMode ? widget.job!['_id'] : jsonDecode(res.body)['_id'];
-          var uploadRequest = http.MultipartRequest(
-            'POST', 
-            Uri.parse('${ApiConfig.jobs}/$jobId/photos')
-          );
-          uploadRequest.headers['Authorization'] = 'Bearer $token';
-          
-          for (var photo in newPhotos) {
-            uploadRequest.files.add(
-              await http.MultipartFile.fromPath('lorryPhotos', photo.path)
-            );
-          }
-          
-          final uploadRes = await uploadRequest.send();
-          final uploadBody = await uploadRes.stream.bytesToString();
-
-          if (uploadRes.statusCode != 200) {
-            throw Exception('Failed to upload photos: ${uploadRes.reasonPhrase} - $uploadBody');
-          }
-        }
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(widget.isEditMode ? 'Job updated successfully' : 'Job created successfully'),
@@ -207,7 +185,8 @@ class _JobDetailPageState extends State<JobDetailPage> {
         );
         Navigator.pop(context, true);
       } else {
-        String errMsg = 'Failed to save job: ${res.body}';
+        final respStr = await res.stream.bytesToString();
+        String errMsg = 'Failed to save job: $respStr';
         if (res.statusCode == 403) errMsg = 'Unauthorized: You cannot edit this job.';
         if (res.statusCode == 404) errMsg = 'Job not found.';
         setState(() {
@@ -227,36 +206,66 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
   Widget _buildPhotoCarousel() {
     List<Widget> photoWidgets = [];
-    
-    // Existing photos from server
-    photoWidgets.addAll(existingPhotos.map((url) => Stack(
-          children: [
-            Image.network(url, fit: BoxFit.cover, width: double.infinity),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.remove_circle, color: Colors.red),
-                onPressed: () => _removeExistingPhoto(existingPhotos.indexOf(url)),
+
+    // Existing photos from database (Cloudinary URLs)
+    photoWidgets.addAll(existingPhotoUrls.asMap().entries.map((entry) {
+      int idx = entry.key;
+      String url = entry.value;
+      return Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: 200,
+              errorBuilder: (context, error, stackTrace) => Container(
+                color: Colors.grey[200],
+                child: const Center(child: Icon(Icons.broken_image, size: 60)),
               ),
+              loadingBuilder: (context, child, progress) =>
+                  progress == null ? child : const Center(child: CircularProgressIndicator()),
             ),
-          ],
-        )));
-    
-    // Newly added photos
-    photoWidgets.addAll(newPhotos.map((file) => Stack(
-          children: [
-            Image.file(file, fit: BoxFit.cover, width: double.infinity),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.remove_circle, color: Colors.red),
-                onPressed: () => _removeNewPhoto(newPhotos.indexOf(file)),
-              ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.remove_circle, color: Colors.red),
+              onPressed: () => _removeExistingPhoto(idx),
             ),
-          ],
-        )));
+          ),
+        ],
+      );
+    }));
+
+    // Newly added photos (temporary files before upload)
+    photoWidgets.addAll(newPhotos.asMap().entries.map((entry) {
+      int idx = entry.key;
+      XFile file = entry.value;
+      return Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              File(file.path),
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: 200,
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.remove_circle, color: Colors.red),
+              onPressed: () => _removeNewPhoto(idx),
+            ),
+          ),
+        ],
+      );
+    }));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -393,7 +402,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
                       onChanged: (value) {
                         setState(() {
                           _truckTypeController.text = value ?? '';
-                          // Clear wheels type when truck type changes
                           _wheelsTypeController.text = '';
                         });
                       },

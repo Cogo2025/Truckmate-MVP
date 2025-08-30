@@ -4,12 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:truckmate_app/api_config.dart';
 import 'specific_owner_posts.dart';
-import 'package:carousel_slider/carousel_slider.dart'; // Add this dependency for better image gallery
-import 'package:animate_do/animate_do.dart'; // Add this for animations (optional, or use built-in animations)
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:animate_do/animate_do.dart';
+import 'package:truckmate_app/utils/image_utils.dart';
+import 'driver_profile_setup.dart'; // Add this import
+import 'api_utils.dart'; // Add this import if available
+import 'dart:async';
 
 // Enhanced Theme Colors
-const primaryColor = Color(0xFF1976D2); // Blue for logistics theme
-const accentColor = Color.fromARGB(255, 255, 0, 0); // Orange accent
+const primaryColor = Color(0xFF1976D2);
+const accentColor = Color.fromARGB(255, 255, 0, 0);
 const backgroundColor = Color(0xFFF5F5F5);
 const cardColor = Colors.white;
 const textColor = Colors.black87;
@@ -30,6 +34,20 @@ class _JobDetailPageState extends State<JobDetailPage> {
   bool isLiked = false;
   String? errorMessage;
   String? likeId;
+  bool _showingImage = false;
+  bool _hasSeenImageForThisJob = false;
+  bool _showFullPhone = false;
+  Timer? _imageTimer;
+  
+  // Add profile status variables
+  bool _isProfileComplete = false;
+  bool _isCheckingProfile = false;
+  Map<String, dynamic>? _driverProfile;
+  Map<String, dynamic>? _userData;
+
+  // Add ScrollController and GlobalKey for scrolling to contact info
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _contactInfoKey = GlobalKey();
 
   @override
   void initState() {
@@ -37,9 +55,314 @@ class _JobDetailPageState extends State<JobDetailPage> {
     _fetchJobDetails();
     _fetchOwnerProfile();
     _checkIfLiked();
+    _checkIfImageSeenForThisJob();
+    _checkDriverProfile(); // Add this line
+  }
+
+  @override
+  void dispose() {
+    _imageTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // NEW: Check driver profile completion status
+  Future<void> _checkDriverProfile() async {
+    setState(() {
+      _isCheckingProfile = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('authToken');
+      
+      if (token == null) {
+        setState(() {
+          _isCheckingProfile = false;
+          _isProfileComplete = false;
+        });
+        return;
+      }
+
+      // Get user data first
+      final userResponse = await http.get(
+        Uri.parse(ApiConfig.authMe),
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (userResponse.statusCode == 200) {
+        _userData = jsonDecode(userResponse.body);
+      }
+
+      // Check driver profile
+      final profileResponse = await http.get(
+        Uri.parse(ApiConfig.driverProfile),
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (profileResponse.statusCode == 200) {
+        final responseData = jsonDecode(profileResponse.body);
+        _driverProfile = responseData['profile'];
+        
+        setState(() {
+          _isProfileComplete = _driverProfile?['profileCompleted'] == true;
+          _isCheckingProfile = false;
+        });
+      } else {
+        setState(() {
+          _isProfileComplete = false;
+          _isCheckingProfile = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking driver profile: $e');
+      setState(() {
+        _isProfileComplete = false;
+        _isCheckingProfile = false;
+      });
+    }
+  }
+
+  // NEW: Show profile incomplete dialog
+  void _showProfileIncompleteDialog(String action) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.warning_rounded,
+                  color: Colors.orange,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Profile Required',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'To $action, you need to complete your driver profile first.',
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.black87,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Complete your profile to access all features and get verified by admin.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.grey[600],
+              ),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _navigateToProfileSetup();
+              },
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Complete Profile'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // NEW: Navigate to profile setup
+  void _navigateToProfileSetup() {
+    if (_userData != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DriverProfileSetupPage(
+            userData: _userData!,
+          ),
+        ),
+      ).then((result) {
+        // Refresh profile status after returning from setup
+        if (result == true) {
+          _checkDriverProfile();
+        }
+      });
+    } else {
+      _showErrorMessage('Unable to load user data. Please try again.');
+    }
+  }
+
+  // Scroll to contact information section
+  void _scrollToContactInfo() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_contactInfoKey.currentContext != null) {
+        final box = _contactInfoKey.currentContext!.findRenderObject() as RenderBox;
+        final position = box.localToGlobal(Offset.zero);
+        final scrollPosition = position.dy - MediaQuery.of(context).padding.top - kToolbarHeight;
+
+        _scrollController.animateTo(
+          scrollPosition,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
+  // Check if user has seen the image for THIS specific job
+  Future<void> _checkIfImageSeenForThisJob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jobId = widget.job['_id']?.toString();
+    if (jobId == null) return;
+
+    final seenJobs = prefs.getStringList('seenCallImageJobs') ?? [];
+    setState(() {
+      _hasSeenImageForThisJob = seenJobs.contains(jobId);
+      // If user has seen image for this job, show full phone immediately
+      if (_hasSeenImageForThisJob) {
+        _showFullPhone = true;
+      }
+    });
+  }
+
+  // Mark that user has seen the image for THIS specific job
+  Future<void> _markImageAsSeenForThisJob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jobId = widget.job['_id']?.toString();
+    if (jobId == null) return;
+
+    final seenJobs = prefs.getStringList('seenCallImageJobs') ?? [];
+    if (!seenJobs.contains(jobId)) {
+      seenJobs.add(jobId);
+      await prefs.setStringList('seenCallImageJobs', seenJobs);
+    }
+
+    setState(() {
+      _hasSeenImageForThisJob = true;
+      _showFullPhone = true; // Show full phone after seeing image
+    });
+  }
+
+  // MODIFIED: Contact owner with profile check
+  void _contactOwner() {
+    // Check if profile is complete first
+    if (!_isProfileComplete) {
+      _showProfileIncompleteDialog('contact the owner');
+      return;
+    }
+
+    // Only show image if it's the first time for THIS job
+    if (!_hasSeenImageForThisJob) {
+      _showImage();
+    } else {
+      // If already seen image for this job, just update the phone display and scroll to contact info
+      setState(() {
+        _showFullPhone = true;
+      });
+      _scrollToContactInfo();
+    }
+  }
+
+  void _showImage() async {
+    // Show the image
+    setState(() {
+      _showingImage = true;
+    });
+
+    // Show dialog with the image
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        child: Image.asset('assets/images/ad.png'), // Replace with your actual image path
+      ),
+    );
+
+    // Mark that user has seen the image for THIS job
+    await _markImageAsSeenForThisJob();
+
+    // Wait for 5 seconds
+    await Future.delayed(const Duration(seconds: 5));
+
+    // Close the image dialog
+    Navigator.of(context).pop();
+
+    // Reset the state
+    setState(() {
+      _showingImage = false;
+      _showFullPhone = true; // Unmask the phone number
+    });
+
+    // Scroll to contact information after showing image
+    _scrollToContactInfo();
+  }
+
+  String _getPhoneDisplay() {
+    final phone = widget.job['phone']?.toString() ?? '';
+    if (_showFullPhone || _hasSeenImageForThisJob) {
+      return phone;
+    }
+    if (phone.length <= 4) return phone;
+    return '******${phone.substring(phone.length - 4)}';
   }
 
   void _showFullScreenImage(int initialIndex) {
+    final List<dynamic>? photosBase64 = widget.job['lorryPhotosBase64'] as List<dynamic>?;
     showDialog(
       context: context,
       builder: (context) {
@@ -49,17 +372,22 @@ class _JobDetailPageState extends State<JobDetailPage> {
           child: Stack(
             children: [
               PageView.builder(
-                itemCount: widget.job['lorryPhotos'].length,
+                itemCount: photosBase64?.length ?? 0,
                 controller: PageController(initialPage: initialIndex),
                 itemBuilder: (context, index) {
+                  final bytes = ImageUtils.decodeBase64Image(photosBase64![index] as String?);
                   return InteractiveViewer(
                     panEnabled: true,
                     minScale: 0.5,
                     maxScale: 3.0,
-                    child: Image.network(
-                      widget.job['lorryPhotos'][index],
-                      fit: BoxFit.contain,
-                    ),
+                    child: bytes != null
+                        ? Image.memory(bytes, fit: BoxFit.contain)
+                        : Container(
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: Text('Failed to load image', style: TextStyle(color: Colors.white)),
+                            ),
+                          ),
                   );
                 },
               ),
@@ -82,7 +410,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-
       if (token == null) {
         throw Exception('Not authenticated');
       }
@@ -118,7 +445,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-
       if (token == null) return;
 
       final response = await http.get(
@@ -140,7 +466,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-
       if (token == null) {
         debugPrint('No auth token found');
         return;
@@ -166,11 +491,17 @@ class _JobDetailPageState extends State<JobDetailPage> {
     }
   }
 
+  // MODIFIED: Toggle like with profile check
   Future<void> _toggleLike() async {
+    // Check if profile is complete first
+    if (!_isProfileComplete) {
+      _showProfileIncompleteDialog('like this job');
+      return;
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('authToken');
-
       if (token == null) {
         _showErrorMessage('Please login again');
         return;
@@ -178,13 +509,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
 
       // Optimistic update with animation
       final bool previousLikeState = isLiked;
-
       setState(() {
         isLiked = !isLiked;
       });
 
       http.Response response;
-
       if (isLiked) {
         // Like the job
         debugPrint('Liking job: ${widget.job['_id']}');
@@ -256,7 +585,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => SpecificOwnerPosts(ownerId: widget.job['ownerId'], ownerName: '',),
+              builder: (context) => SpecificOwnerPosts(ownerId: widget.job['ownerId'], ownerName: ''),
             ),
           );
         }
@@ -334,6 +663,164 @@ class _JobDetailPageState extends State<JobDetailPage> {
     );
   }
 
+  // Modified: Phone Number Box with Owner Info (without button)
+  Widget _buildOwnerContactBox() {
+    return Container(
+      key: _contactInfoKey,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Owner Name
+          Text(
+            ownerProfile?['name'] ??
+                widget.job['ownerName'] ??
+                widget.job['owner']?['name'] ??
+                'Owner Name',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Company Name
+          if (ownerProfile?['companyName'] != null)
+            Text(
+              ownerProfile!['companyName'],
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: primaryColor,
+              ),
+            ),
+          const SizedBox(height: 16),
+          // Phone Number Section
+          Row(
+            children: [
+              Icon(Icons.phone, color: primaryColor, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Contact Number',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: subTextColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getPhoneDisplay(),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _showFullPhone ? primaryColor : textColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // MODIFIED: Bottom Contact Button with profile status check
+  Widget _buildBottomContactButton() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Show profile status if incomplete
+          if (!_isProfileComplete && !_isCheckingProfile) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_rounded, color: Colors.orange, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Complete your profile to contact owners',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          
+          ElevatedButton(
+            onPressed: _isCheckingProfile ? null : _contactOwner,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isProfileComplete ? primaryColor : Colors.grey,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: _isCheckingProfile
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(Colors.white),
+                    ),
+                  )
+                : Text(
+                    _isProfileComplete
+                        ? (_hasSeenImageForThisJob ? 'View Phone Number' : 'Contact Owner')
+                        : 'Complete Profile First',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildJobDetails() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -352,22 +839,6 @@ class _JobDetailPageState extends State<JobDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Company Name
-          if (ownerProfile?['companyName'] != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                ownerProfile!['companyName'],
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 2,
-              ),
-            ),
-
           // Job Description
           if (widget.job['description'] != null)
             Padding(
@@ -397,11 +868,10 @@ class _JobDetailPageState extends State<JobDetailPage> {
           if (widget.job['dutyType'] != null)
             _buildDetailRow(Icons.schedule, "Duty Type", widget.job['dutyType']),
 
-          if (widget.job['variant'] != null && widget.job['variant']['type'] != null)
+          if (widget.job['variant'] != null &&
+              widget.job['variant']['type'] != null &&
+              widget.job['variant']['type'].toString().isNotEmpty)
             _buildDetailRow(Icons.category, "Variant", widget.job['variant']['type']),
-
-          if (widget.job['variant'] != null && widget.job['variant']['wheelsOrFeet'] != null)
-            _buildDetailRow(Icons.settings, "Configuration", widget.job['variant']['wheelsOrFeet']),
         ],
       ),
     );
@@ -441,84 +911,174 @@ class _JobDetailPageState extends State<JobDetailPage> {
   }
 
   Widget _buildImageGallery() {
-    if (widget.job['lorryPhotos'] == null || widget.job['lorryPhotos'].isEmpty) {
-      return Container();
-    }
+    // Try Base64 first
+    final List<dynamic>? photosBase64 = widget.job['lorryPhotosBase64'] as List<dynamic>?;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 2,
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              "Vehicle Photos",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: textColor,
+    if (photosBase64 != null && photosBase64.isNotEmpty) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                "Vehicle Photos",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
               ),
             ),
-          ),
-          CarouselSlider.builder(
-            itemCount: widget.job['lorryPhotos'].length,
-            itemBuilder: (context, index, realIndex) {
-              return GestureDetector(
-                onTap: () => _showFullScreenImage(index),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    widget.job['lorryPhotos'][index],
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: Colors.grey[200],
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image, size: 40, color: subTextColor),
-                          SizedBox(height: 8),
-                          Text('Failed to load image', style: TextStyle(color: subTextColor)),
-                        ],
-                      ),
+            CarouselSlider.builder(
+              itemCount: photosBase64.length,
+              itemBuilder: (context, index, realIndex) {
+                final bytes = ImageUtils.decodeBase64Image(photosBase64[index] as String?);
+                return GestureDetector(
+                  onTap: () => _showFullScreenImage(index),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: bytes != null
+                        ? Image.memory(
+                            bytes,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          )
+                        : Container(
+                            color: Colors.grey[200],
+                            child: const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.broken_image, size: 40, color: subTextColor),
+                                SizedBox(height: 8),
+                                Text('Failed to load image', style: TextStyle(color: subTextColor)),
+                              ],
+                            ),
+                          ),
+                  ),
+                );
+              },
+              options: CarouselOptions(
+                height: 200,
+                viewportFraction: 0.8,
+                enlargeCenterPage: true,
+                enableInfiniteScroll: false,
+                initialPage: 0,
+                autoPlay: true,
+                autoPlayInterval: const Duration(seconds: 3),
+                autoPlayAnimationDuration: const Duration(milliseconds: 800),
+                autoPlayCurve: Curves.fastOutSlowIn,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
+    }
+
+    // Fallback to URL-based images if Base64 not available
+    if (widget.job['lorryPhotos'] != null && widget.job['lorryPhotos'].isNotEmpty) {
+      final List<String> photoUrls = (widget.job['lorryPhotos'] as List).cast<String>();
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                "Vehicle Photos",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+            ),
+            CarouselSlider.builder(
+              itemCount: photoUrls.length,
+              itemBuilder: (context, index, realIndex) {
+                return GestureDetector(
+                  onTap: () => _showFullScreenImage(index),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      photoUrls[index],
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[200],
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.broken_image, size: 40, color: subTextColor),
+                              SizedBox(height: 8),
+                              Text('Failed to load image', style: TextStyle(color: subTextColor)),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ),
-                ),
-              );
-            },
-            options: CarouselOptions(
-              height: 200,
-              viewportFraction: 0.8,
-              enlargeCenterPage: true,
-              enableInfiniteScroll: false,
-              initialPage: 0,
-              autoPlay: true,
-              autoPlayInterval: const Duration(seconds: 3),
-              autoPlayAnimationDuration: const Duration(milliseconds: 800),
-              autoPlayCurve: Curves.fastOutSlowIn,
+                );
+              },
+              options: CarouselOptions(
+                height: 200,
+                viewportFraction: 0.8,
+                enlargeCenterPage: true,
+                enableInfiniteScroll: false,
+                initialPage: 0,
+                autoPlay: true,
+                autoPlayInterval: const Duration(seconds: 3),
+                autoPlayAnimationDuration: const Duration(milliseconds: 800),
+                autoPlayCurve: Curves.fastOutSlowIn,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
+    }
+
+    return Container();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_showingImage) {
+      return Scaffold(
+        body: Center(
+          child: Image.asset('assets/images/ad.png', fit: BoxFit.cover),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
@@ -527,16 +1087,35 @@ class _JobDetailPageState extends State<JobDetailPage> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: Icon(
-                isLiked ? Icons.favorite : Icons.favorite_border,
-                key: ValueKey<bool>(isLiked),
-                color: isLiked ? accentColor : Colors.white,
+          // MODIFIED: Like button with profile status indicator
+          Stack(
+            children: [
+              IconButton(
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Icon(
+                    isLiked ? Icons.favorite : Icons.favorite_border,
+                    key: ValueKey(isLiked),
+                    color: isLiked ? accentColor : Colors.white,
+                  ),
+                ),
+                onPressed: _toggleLike,
               ),
-            ),
-            onPressed: _toggleLike,
+              // Show warning dot if profile incomplete
+              if (!_isProfileComplete && !_isCheckingProfile)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Colors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -566,6 +1145,7 @@ class _JobDetailPageState extends State<JobDetailPage> {
                             _fetchJobDetails();
                             _fetchOwnerProfile();
                             _checkIfLiked();
+                            _checkDriverProfile(); // Add this line
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryColor,
@@ -582,9 +1162,11 @@ class _JobDetailPageState extends State<JobDetailPage> {
                     await _fetchJobDetails();
                     await _fetchOwnerProfile();
                     await _checkIfLiked();
+                    await _checkDriverProfile(); // Add this line
                   },
                   color: primaryColor,
                   child: SingleChildScrollView(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
@@ -594,16 +1176,32 @@ class _JobDetailPageState extends State<JobDetailPage> {
                           child: _buildImageGallery(),
                         ),
                         const SizedBox(height: 16),
+
                         // Owner Info with animation
                         FadeInUp(
                           duration: const Duration(milliseconds: 600),
                           child: _buildOwnerInfo(),
                         ),
                         const SizedBox(height: 16),
+
+                        // Owner Contact Box with Phone Number (without button)
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 650),
+                          child: _buildOwnerContactBox(),
+                        ),
+                        const SizedBox(height: 16),
+
                         // Job Details with animation
                         FadeInUp(
                           duration: const Duration(milliseconds: 700),
                           child: _buildJobDetails(),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // MODIFIED: Bottom Contact Button with profile check
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 750),
+                          child: _buildBottomContactButton(),
                         ),
                       ],
                     ),

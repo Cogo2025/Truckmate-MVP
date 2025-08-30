@@ -1,4 +1,5 @@
-// screens/driver/driver_main_navigation.dart - Enhanced version
+// screens/driver/driver_main_navigation.dart - Enhanced version with filter fix
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -11,26 +12,41 @@ import 'driver_profile_setup.dart';
 import '../../api_config.dart';
 import 'api_utils.dart';
 
+
 class DriverMainNavigation extends StatefulWidget {
   final int initialTabIndex;
   final String? filterByVehicle;
-  const DriverMainNavigation({super.key, this.initialTabIndex = 0, this.filterByVehicle});
+
+  const DriverMainNavigation({
+    super.key,
+    this.initialTabIndex = 0,
+    this.filterByVehicle,
+  });
 
   @override
   State<DriverMainNavigation> createState() => _DriverMainNavigationState();
 }
 
-class _DriverMainNavigationState extends State<DriverMainNavigation> with TickerProviderStateMixin {
+class _DriverMainNavigationState extends State<DriverMainNavigation>
+    with TickerProviderStateMixin {
   int _selectedIndex = 0;
   bool _checkingProfile = false;
   Map<String, dynamic>? _userData;
   Map<String, dynamic>? _verificationStatus;
-  final GlobalKey<DriverLikesPageState> _likesPageKey = GlobalKey<DriverLikesPageState>();
+  final GlobalKey<DriverLikesPageState> _likesPageKey = GlobalKey();
 
+  // Store filter state
+  String? _currentVehicleFilter;
+  bool _hasAppliedInitialFilter = false;
+
+  // Animation controllers
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   late AnimationController _rippleController;
   late Animation<double> _rippleAnimation;
+
+  // Store pages as instance variables but handle Jobs page dynamically
+  late final List<Widget> _staticPages;
 
   final List<NavigationItem> _navigationItems = [
     NavigationItem(
@@ -79,50 +95,50 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     ),
   ];
 
-  List<Widget> get _pages => [
+  @override
+void initState() {
+  super.initState();
+  _selectedIndex = widget.initialTabIndex;
+
+  // Initialize static pages (excluding Jobs page)
+  _staticPages = [
     const DriverDashboard(),
     DriverLikesPage(
       key: _likesPageKey,
       onRefresh: () => _likesPageKey.currentState?.refreshLikedJobs(),
     ),
-    DriverJobsPage(
-      filterByVehicle: _selectedIndex == 2 ? widget.filterByVehicle : null,
-    ),
-    const DriverProfilePage(),
+    Container(), // Placeholder for Jobs page - will be replaced dynamically
+    DriverProfilePage(userData: _userData ?? {}), // ✅ FIXED - pass userData
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedIndex = widget.initialTabIndex;
-    _loadUserData();
-    _initializeAnimations();
+  // Set initial filter if provided and navigating directly to Jobs page
+  if (widget.filterByVehicle != null && widget.initialTabIndex == 2) {
+    _currentVehicleFilter = widget.filterByVehicle;
+    _hasAppliedInitialFilter = true;
   }
+
+  _loadUserData();
+  _initializeAnimations();
+}
 
   void _initializeAnimations() {
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(
-      begin: 1.0,
-      end: 1.1,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.elasticOut,
-    ));
+
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
+    );
 
     _rippleController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-    _rippleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _rippleController,
-      curve: Curves.easeOut,
-    ));
+
+    _rippleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _rippleController, curve: Curves.easeOut),
+    );
   }
 
   @override
@@ -130,6 +146,30 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     _animationController.dispose();
     _rippleController.dispose();
     super.dispose();
+  }
+
+  // Create Jobs page dynamically based on current filter state
+  Widget _createJobsPage() {
+    String? filterToApply;
+
+    // Only apply filter if:
+    // 1. Coming from dashboard with initial filter AND haven't applied it yet
+    // 2. OR if there's a current vehicle filter set
+    if (!_hasAppliedInitialFilter &&
+        widget.filterByVehicle != null &&
+        _selectedIndex == 2) {
+      filterToApply = widget.filterByVehicle;
+      _hasAppliedInitialFilter = true;
+    } else if (_selectedIndex == 2 && _currentVehicleFilter != null) {
+      filterToApply = _currentVehicleFilter;
+    }
+
+    return DriverJobsPage(
+      key: ValueKey(
+        'jobs_${filterToApply ?? 'all'}',
+      ), // Unique key for each filter state
+      filterByVehicle: filterToApply,
+    );
   }
 
   Future<void> _loadUserData() async {
@@ -147,8 +187,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
         setState(() {
           _userData = jsonDecode(response.body);
         });
-
-        // Load verification status
         await _loadVerificationStatus();
       }
     } catch (e) {
@@ -173,62 +211,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     }
   }
 
-  Future<bool> _checkProfileCompletion() async {
-    if (_checkingProfile) return true;
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('authToken');
-    if (token == null) return false;
-
-    setState(() => _checkingProfile = true);
-
-    try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.driverProfile}/check-completion'),
-        headers: {"Authorization": "Bearer $token"},
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        if (data['completed'] == false && _userData != null) {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => DriverProfileSetupPage(userData: _userData! as Map<String, String>),
-            ),
-          );
-          // Reload verification status after profile setup
-          await _loadVerificationStatus();
-          return await _checkProfileCompletion();
-        }
-        return data['completed'] == true;
-      }
-      return false;
-    } catch (e) {
-      debugPrint("Error checking profile completion: $e");
-      return false;
-    } finally {
-      setState(() => _checkingProfile = false);
-    }
-  }
-
-  Future<bool> _checkVerificationStatus() async {
-    if (_verificationStatus == null) {
-      await _loadVerificationStatus();
-    }
-
-    if (_verificationStatus == null) return false;
-
-    final canAccess = _verificationStatus!['canAccessJobs'] ?? false;
-    
-    if (!canAccess) {
-      _showVerificationStatusDialog();
-      return false;
-    }
-    
-    return true;
-  }
-
   void _showVerificationStatusDialog() {
     if (_verificationStatus == null) return;
 
@@ -240,7 +222,8 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     switch (status) {
       case 'pending':
         title = 'Verification Pending';
-        content = 'Your profile is being reviewed by our team. Please wait for approval.';
+        content =
+            'Your profile is being reviewed by our team. Please wait for approval.';
         actions = [
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -248,10 +231,10 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
           ),
         ];
         break;
-
       case 'rejected':
         title = 'Verification Rejected';
-        content = 'Your profile was rejected. Please update your information and resubmit.';
+        content =
+            'Your profile was rejected. Please update your information and resubmit.';
         actions = [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -260,37 +243,35 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              // Navigate to profile edit page
               setState(() => _selectedIndex = 3);
             },
             child: const Text('Update Profile'),
           ),
         ];
         break;
-
-      case 'no_profile':
-        title = 'Complete Your Profile';
-        content = 'Please complete your driver profile to access jobs and other features.';
-        actions = [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              if (_userData != null) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => DriverProfileSetupPage(
-                      userData: _userData! as Map<String, String>,
-                    ),
-                  ),
-                );
-              }
-            },
-            child: const Text('Complete Profile'),
-          ),
-        ];
-        break;
-
+      // Around line 240, update this part:
+case 'no_profile':
+  title = 'Complete Your Profile';
+  content = 'Please complete your driver profile to access jobs and other features.';
+  actions = [
+    ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).pop();
+        if (_userData != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DriverProfileSetupPage(
+                userData: _userData! as Map<String, dynamic>, // ✅ This is correct
+              ),
+            ),
+          );
+        }
+      },
+      child: const Text('Complete Profile'),
+    ),
+  ];
+  break;
       default:
         actions = [
           ElevatedButton(
@@ -303,25 +284,22 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: actions,
-      ),
+      builder:
+          (context) => AlertDialog(
+            title: Text(title),
+            content: Text(content),
+            actions: actions,
+          ),
     );
   }
 
-  void _onItemTapped(int index) async {
-    // Check profile completion and verification for protected tabs
-    if (index == 1 || index == 2) {
-      final isComplete = await _checkProfileCompletion();
-      if (!isComplete) return;
-
-      final isVerified = await _checkVerificationStatus();
-      if (!isVerified) return;
+  void _refreshDashboard() {
+    if (_selectedIndex == 0) {
+      setState(() {});
     }
+  }
 
-    // Trigger animations
+  void _onItemTapped(int index) async {
     _animationController.forward().then((_) {
       _animationController.reverse();
     });
@@ -329,15 +307,27 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
       _rippleController.reset();
     });
 
+    // Clear vehicle filter when navigating to Jobs page from bottom nav
+    // (unless it's the initial navigation with a filter)
+    if (index == 2 && _selectedIndex != 2) {
+      // Only clear filter if not coming from dashboard initially
+      if (_hasAppliedInitialFilter) {
+        _currentVehicleFilter = null;
+      }
+    }
+
     setState(() {
       _selectedIndex = index;
     });
 
-    // Refresh likes page when navigating to it
     if (index == 1) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _likesPageKey.currentState?.refreshLikedJobs();
       });
+    }
+
+    if (index == 0) {
+      _refreshDashboard();
     }
   }
 
@@ -345,8 +335,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
     if (_verificationStatus == null) return const SizedBox.shrink();
 
     final status = _verificationStatus!['verificationStatus'];
-    final canAccess = _verificationStatus!['canAccessJobs'] ?? false;
-
     Color indicatorColor;
     IconData indicatorIcon;
     String statusText;
@@ -407,35 +395,46 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
           setState(() => _selectedIndex = 0);
           return false;
         } else {
-          final shouldExit = await showDialog(
+          final shouldExit = await showDialog<bool>(
             context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Are you quitting?'),
-              content: const Text('Do you want to exit the app?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('No'),
+            builder:
+                (context) => AlertDialog(
+                  title: const Text('Are you quitting?'),
+                  content: const Text('Do you want to exit the app?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('No'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Yes'),
+                    ),
+                  ],
                 ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Yes'),
-                ),
-              ],
-            ),
           );
           return shouldExit == true;
         }
       },
       child: Scaffold(
-        appBar: _selectedIndex != 0 ? AppBar(
-          title: Text(_navigationItems[_selectedIndex].label),
-          automaticallyImplyLeading: false,
-          actions: [_buildVerificationStatusIndicator()],
-        ) : null,
+        appBar:
+            _selectedIndex != 0 &&
+                    _selectedIndex !=
+                        2 // Exclude both Dashboard (0) and Jobs (2)
+                ? AppBar(
+                  title: Text(_navigationItems[_selectedIndex].label),
+                  automaticallyImplyLeading: false,
+                  actions: [_buildVerificationStatusIndicator()],
+                )
+                : null,
         body: IndexedStack(
           index: _selectedIndex,
-          children: _pages,
+          children: [
+            _staticPages[0], // Dashboard
+            _staticPages[1], // Likes
+            _createJobsPage(), // Jobs - created dynamically
+            _staticPages[3], // Profile
+          ],
         ),
         bottomNavigationBar: Container(
           decoration: BoxDecoration(
@@ -467,8 +466,8 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                 children: List.generate(_navigationItems.length, (index) {
                   final item = _navigationItems[index];
                   final isSelected = _selectedIndex == index;
-                  final needsVerification = (index == 1 || index == 2);
-                  final isVerified = _verificationStatus?['canAccessJobs'] ?? false;
+                  final needsVerification = false;
+                  final isVerified = true;
 
                   return Expanded(
                     child: GestureDetector(
@@ -489,7 +488,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                             Stack(
                               alignment: Alignment.center,
                               children: [
-                                // Ripple effect
                                 if (isSelected)
                                   AnimatedBuilder(
                                     animation: _rippleAnimation,
@@ -506,53 +504,36 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                                       );
                                     },
                                   ),
-                                // Icon with scale animation and verification indicator
                                 AnimatedBuilder(
                                   animation: _scaleAnimation,
                                   builder: (context, child) {
                                     return Transform.scale(
-                                      scale: isSelected ? _scaleAnimation.value : 1.0,
-                                      child: Stack(
-                                        children: [
-                                          Container(
-                                            width: 34,
-                                            height: 34,
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: isSelected
-                                                  ? Colors.white.withOpacity(0.2)
+                                      scale:
+                                          isSelected
+                                              ? _scaleAnimation.value
+                                              : 1.0,
+                                      child: Container(
+                                        width: 34,
+                                        height: 34,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color:
+                                              isSelected
+                                                  ? Colors.white.withOpacity(
+                                                    0.2,
+                                                  )
                                                   : Colors.transparent,
-                                            ),
-                                            child: Icon(
-                                              isSelected ? item.activeIcon : item.icon,
-                                              size: 22,
-                                              color: isSelected
+                                        ),
+                                        child: Icon(
+                                          isSelected
+                                              ? item.activeIcon
+                                              : item.icon,
+                                          size: 22,
+                                          color:
+                                              isSelected
                                                   ? Colors.white
-                                                  : (needsVerification && !isVerified)
-                                                      ? Colors.grey.shade400
-                                                      : Colors.grey.shade600,
-                                            ),
-                                          ),
-                                          // Verification warning indicator
-                                          if (needsVerification && !isVerified)
-                                            Positioned(
-                                              right: -2,
-                                              top: -2,
-                                              child: Container(
-                                                width: 12,
-                                                height: 12,
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.orange,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.warning,
-                                                  size: 8,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
+                                                  : Colors.grey.shade600,
+                                        ),
                                       ),
                                     );
                                   },
@@ -564,10 +545,14 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
                               duration: const Duration(milliseconds: 300),
                               style: TextStyle(
                                 fontSize: isSelected ? 11 : 10,
-                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                color: isSelected 
-                                    ? Colors.white 
-                                    : (needsVerification && !isVerified)
+                                fontWeight:
+                                    isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                color:
+                                    isSelected
+                                        ? Colors.white
+                                        : (needsVerification && !isVerified)
                                         ? Colors.grey.shade400
                                         : Colors.grey.shade600,
                               ),
@@ -592,7 +577,6 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> with Ticker
   }
 }
 
-// Navigation Item Model (unchanged)
 class NavigationItem {
   final IconData icon;
   final IconData activeIcon;
